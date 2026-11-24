@@ -1,7 +1,8 @@
 --[[==================================================================
-  MARCOS 2D  -  Analisis de marcos planos por el metodo de rigidez
+  Estruc-TI (antes MARCOS 2D) - Analisis de marcos planos por rigidez
   Para TI-Nspire CX II / CX II CAS  (Lua, platform.apilevel 2.4)
 
+  Version 1.2 (cargas incognitas: P, w... y despeje de incognitas)
   Version 1.1 (nueva interfaz + ecuaciones por tramo)
   Basado en la app FEES del Ing. Sergio Lobo Aguilar (UCR).
   Desarrollado con ayuda de la IA Claude (Anthropic).
@@ -26,7 +27,7 @@ local floor, ceil, abs, sqrt, max, min = math.floor, math.ceil, math.abs, math.s
 local HUGE = math.huge
 local W, H = 318, 212
 local AUTOR = "Juan Vargas"
-local VERSION = "1.1"
+local VERSION = "1.2"
 
 ------------------------------------------------------------------
 -- Unidades y catalogos
@@ -83,6 +84,7 @@ local function fixModel()
   end
   for _, e in ipairs(M.elems) do e.s = e.s or 1; e.hi = e.hi or 1; e.hj = e.hj or 1 end
   for _, l in ipairs(M.nl) do l.fx = l.fx or 0; l.fy = l.fy or 0; l.m = l.m or 0 end
+  if type(M.symv) ~= "table" then M.symv = {} end
   for _, l in ipairs(M.el) do
     l.t = l.t or 1; l.d = l.d or 1; l.v1 = l.v1 or 0; l.v2 = l.v2 or 0; l.a = l.a or 0; l.b = l.b or 0
   end
@@ -133,6 +135,151 @@ local function parseNum(t)
     if ok and type(r) == "number" then return r end
   end
   return nil
+end
+
+------------------------------------------------------------------
+-- CARGAS INCOGNITAS (v1.2)
+--   Un valor de carga puede ser un numero o una forma lineal
+--   {c = constante, s = {P = coef, w = coef, ...}}  (c + coef*P + ...)
+--   El calculo se hace con valores numericos de las incognitas (ENV)
+--   y, por superposicion, se obtienen los resultados en funcion de ellas.
+------------------------------------------------------------------
+local ENV = {}
+
+local function Lval(v, env)
+  if type(v) ~= "table" then return v or 0 end
+  local s = v.c or 0
+  env = env or ENV
+  for k, a in pairs(v.s or {}) do s = s + a * (env[k] or 0) end
+  return s
+end
+
+local LvalE = Lval
+
+local function Lscale(v, f)
+  if type(v) ~= "table" then return v * f end
+  local r = {c = (v.c or 0) * f, s = {}}
+  for k, a in pairs(v.s or {}) do r.s[k] = a * f end
+  return r
+end
+
+-- Interpreta expresiones lineales: P, -2P, P/2, 3+0.5*w, 2(P+1), 1.5E3...
+local function Lparse(t)
+  if not t then return nil end
+  local s = t:gsub("−", "-"):gsub("ᴇ", "E"):gsub("·", "*"):gsub("×", "*"):gsub("%s", "")
+  if s == "" then return nil end
+  local pos = 1
+  local function peek() return s:sub(pos, pos) end
+  local function K(n) return {c = n, s = {}} end
+  local function isK(a) for _, v in pairs(a.s) do if v ~= 0 then return false end end return true end
+  local function scal(a, f) local r = K(a.c * f); for k, v in pairs(a.s) do r.s[k] = v * f end; return r end
+  local function add(a, b, sg)
+    local r = K(a.c + sg * b.c)
+    for k, v in pairs(a.s) do r.s[k] = v end
+    for k, v in pairs(b.s) do r.s[k] = (r.s[k] or 0) + sg * v end
+    return r
+  end
+  local function mul(a, b)
+    if isK(a) then return scal(b, a.c) elseif isK(b) then return scal(a, b.c) end
+    error("no lineal")
+  end
+  local expr
+  local function factor()
+    local ch = peek()
+    if ch == "+" then pos = pos + 1; return factor() end
+    if ch == "-" then pos = pos + 1; return scal(factor(), -1) end
+    local base
+    if ch == "(" then
+      pos = pos + 1
+      base = expr()
+      if peek() ~= ")" then error("falta )") end
+      pos = pos + 1
+    else
+      local a, b = s:find("^%d*%.?%d+[eE][%+%-]?%d+", pos)
+      if not a then a, b = s:find("^%d+%.?%d*", pos) end
+      if not a then a, b = s:find("^%.%d+", pos) end
+      if a then
+        base = K(tonumber(s:sub(a, b))); pos = b + 1
+      else
+        a, b = s:find("^[%a_][%w_]*", pos)
+        if not a then error("simbolo") end
+        local name = s:sub(a, b); pos = b + 1
+        if name == "pi" then base = K(math.pi) else base = K(0); base.s[name] = 1 end
+      end
+    end
+    if peek() == "^" then
+      pos = pos + 1
+      local ex = factor()
+      if not (isK(base) and isK(ex)) then error("no lineal") end
+      base = K(base.c ^ ex.c)
+    end
+    return base
+  end
+  local function term()
+    local a = factor()
+    while true do
+      local ch = peek()
+      if ch == "*" or ch == "/" then
+        pos = pos + 1
+        local b = factor()
+        if ch == "/" then
+          if not isK(b) or b.c == 0 then error("division") end
+          a = scal(a, 1 / b.c)
+        else
+          a = mul(a, b)
+        end
+      elseif ch ~= "" and ch:match("[%w_%.%(]") then
+        a = mul(a, factor())            -- multiplicacion implicita: 2P, 3(P+1)
+      else
+        break
+      end
+    end
+    return a
+  end
+  expr = function()
+    local a = term()
+    while peek() == "+" or peek() == "-" do
+      local ch = peek(); pos = pos + 1
+      a = add(a, term(), ch == "+" and 1 or -1)
+    end
+    return a
+  end
+  local ok, r = pcall(function()
+    local v = expr()
+    if pos <= #s then error("resto") end
+    return v
+  end)
+  if ok then
+    local out, any = {c = r.c, s = {}}, false
+    for k, v in pairs(r.s) do if v ~= 0 then out.s[k] = v; any = true end end
+    if not any then return r.c end
+    return out
+  end
+  return parseNum(t)       -- funciones de la calculadora: √(2), sin(30)...
+end
+
+-- Texto de una forma lineal: "30 + 0.66667P - 2w"
+local function Lstr(v, tol, dig)
+  if type(v) ~= "table" then return fmt(v, tol, dig) end
+  local names = {}
+  for k in pairs(v.s or {}) do names[#names + 1] = k end
+  table.sort(names)
+  local c = v.c or 0
+  if tol and abs(c) < tol then c = 0 end
+  local s = ""
+  if abs(c) >= 1e-14 then s = fmt(c, nil, dig) end
+  for _, k in ipairs(names) do
+    local a = v.s[k]
+    local sc = abs(ENV[k] or 1); if sc < 1 then sc = 1 end
+    if abs(a) > 1e-14 and not (tol and abs(a) * sc < tol) then
+      local cs = (abs(abs(a) - 1) < 1e-12) and "" or fmt(abs(a), nil, dig)
+      local term = cs .. k
+      if s == "" then s = (a < 0 and "-" or "") .. term
+      else s = s .. (a < 0 and " - " or " + ") .. term end
+    end
+  end
+  if s == "" then s = "0" end
+  return s
 end
 
 ------------------------------------------------------------------
@@ -207,8 +354,9 @@ local function mkctx(k)
   local ctx = {L = L, c = c, s = s, EA = EA, EI = sec.E * sec.I, D = {}, P = {}, tol = 1e-9 * L}
   for _, ld in ipairs(M.el) do
     if ld.e == k then
+      local v1, v2 = Lval(ld.v1), Lval(ld.v2)
       if ld.t == 3 then
-        ctx.P[#ctx.P + 1] = {a = clamp(ld.a, 0, L), px = 0, py = 0, m = ld.v1}
+        ctx.P[#ctx.P + 1] = {a = clamp(ld.a, 0, L), px = 0, py = 0, m = v1}
       else
         local d, lx, ly, f = ld.d, 0, 0, 1
         if d == 1 or d == 5 then lx, ly = s, c; if d == 5 then f = abs(c) end
@@ -216,10 +364,10 @@ local function mkctx(k)
         elseif d == 3 then ly = 1
         else lx = 1 end
         if ld.t == 2 then
-          ctx.P[#ctx.P + 1] = {a = clamp(ld.a, 0, L), px = ld.v1 * lx, py = ld.v1 * ly, m = 0}
+          ctx.P[#ctx.P + 1] = {a = clamp(ld.a, 0, L), px = v1 * lx, py = v1 * ly, m = 0}
         else
           local a, b = ld.a, ld.b
-          local w1, w2 = ld.v1, ld.v2
+          local w1, w2 = v1, v2
           if b <= 0 then b = L end
           if b < a then a, b = b, a; w1, w2 = w2, w1 end
           a, b = clamp(a, 0, L), clamp(b, 0, L)
@@ -460,7 +608,7 @@ local function golden(fn, a, b)
   return x, fn(x)
 end
 
-local function solve()
+local function solve(light)
   local nn, ne = #M.nodes, #M.elems
   if nn < 2 or ne < 1 then return nil, "Defina al menos 2 nudos\ny 1 elemento." end
   for k, e in ipairs(M.elems) do
@@ -487,7 +635,7 @@ local function solve()
   end
   for _, l in ipairs(M.nl) do
     local b = 3 * (l.n - 1)
-    F[b + 1] = F[b + 1] + l.fx; F[b + 2] = F[b + 2] + l.fy; F[b + 3] = F[b + 3] + l.m
+    F[b + 1] = F[b + 1] + Lval(l.fx); F[b + 2] = F[b + 2] + Lval(l.fy); F[b + 3] = F[b + 3] + Lval(l.m)
   end
   local EL, conn = {}, {}
   for k = 1, nn do conn[k] = {n = 0, r = 0} end
@@ -626,6 +774,7 @@ local function solve()
     for _, r in ipairs(R) do f[r] = 0 end
     X.dl = dl; X.f = f
     X.S0 = {-f[1], f[2], -f[3], dl[3], dl[2], dl[1]}
+    if not light then
     -- muestras
     local smp = {}
     local c, s = ctx.c, ctx.s
@@ -658,6 +807,7 @@ local function solve()
       qmax[q] = max(qmax[q], abs(mx.v), abs(mn.v))
       if mx.v > gx[q].mx.v then gx[q].mx = {v = mx.v, x = mx.x, e = k} end
       if mn.v < gx[q].mn.v then gx[q].mn = {v = mn.v, x = mn.x, e = k} end
+    end
     end
   end
 
@@ -722,23 +872,59 @@ local function tramos(X)
 end
 
 local SUPX = {"", "x", "x²", "x³", "x^4", "x^5"}
+
+-- tamano de una forma lineal (con los valores de prueba de las incognitas)
+local function Lmag(v)
+  if type(v) ~= "table" then return abs(v) end
+  local m = abs(v.c or 0)
+  for k, a in pairs(v.s or {}) do
+    local sc = abs(ENV[k] or 1); if sc < 1 then sc = 1 end
+    m = max(m, abs(a) * sc)
+  end
+  return m
+end
+
+-- Polinomio en x; los coeficientes pueden ser numeros o formas lineales
 local function polyStr(c, L, ref)
   local mag = 0
-  for j = 1, #c do mag = max(mag, abs(c[j]) * L ^ (j - 1)) end
+  for j = 1, #c do mag = max(mag, Lmag(c[j]) * L ^ (j - 1)) end
   if mag < 1e-9 * (ref or 0) or mag == 0 then return "0" end
   local s = ""
   for j = 1, #c do
     local v = c[j]
-    if abs(v) * L ^ (j - 1) > 1e-9 * mag then
-      local neg = v < 0
-      local a = abs(v)
-      local cs
-      if j > 1 and abs(a - 1) < 1e-12 then cs = "" else cs = fmt(a, nil, 5) end
-      local term = cs .. SUPX[j]
-      if s == "" then s = (neg and "-" or "") .. term
-      else s = s .. (neg and " - " or " + ") .. term end
+    local tolj = 1e-9 * mag / L ^ (j - 1)
+    if Lmag(v) > tolj then
+      local comps = {}
+      if type(v) ~= "table" then comps[1] = {"", v}
+      else
+        if abs(v.c or 0) > tolj then comps[#comps + 1] = {"", v.c} end
+        local names = {}
+        for k in pairs(v.s or {}) do names[#names + 1] = k end
+        table.sort(names)
+        for _, k in ipairs(names) do
+          local sc = abs(ENV[k] or 1); if sc < 1 then sc = 1 end
+          if abs(v.s[k]) * sc > tolj then comps[#comps + 1] = {k, v.s[k]} end
+        end
+      end
+      if #comps == 1 then
+        local nm, a0 = comps[1][1], comps[1][2]
+        local neg, a = a0 < 0, abs(a0)
+        local cs
+        if (j > 1 or nm ~= "") and abs(a - 1) < 1e-12 then cs = "" else cs = fmt(a, nil, 5) end
+        local term = cs .. nm .. SUPX[j]
+        if s == "" then s = (neg and "-" or "") .. term
+        else s = s .. (neg and " - " or " + ") .. term end
+      elseif #comps > 1 then
+        local body = Lstr(v, tolj, 5)
+        if s == "" and j == 1 then s = body
+        else
+          body = "(" .. body .. ")" .. SUPX[j]
+          if s == "" then s = body else s = s .. " + " .. body end
+        end
+      end
     end
   end
+  if s == "" then return "0" end
   return s
 end
 
@@ -816,13 +1002,73 @@ end
 
 local function copyt(t) local r = {}; for k, v in pairs(t) do r[k] = v end; return r end
 
+-- Incognitas presentes en las cargas del modelo (ordenadas)
+local function modelSyms()
+  local set, list = {}, {}
+  local function scan(v)
+    if type(v) == "table" then
+      for k, a in pairs(v.s or {}) do
+        if a ~= 0 and not set[k] then set[k] = true; list[#list + 1] = k end
+      end
+    end
+  end
+  for _, l in ipairs(M.nl) do scan(l.fx); scan(l.fy); scan(l.m) end
+  for _, l in ipairs(M.el) do scan(l.v1); if l.t == 1 then scan(l.v2) end end
+  table.sort(list)
+  return list
+end
+
 local function ensure()
   if RES then return true end
+  local names = modelSyms()
+  if type(M.symv) ~= "table" then M.symv = {} end
+  local test = {}
+  for _, k in ipairs(names) do
+    if type(M.symv[k]) ~= "number" then M.symv[k] = 1 end
+    test[k] = M.symv[k]
+  end
+  ENV = test
   local ok, r, err = pcall(solve)
   if not ok then showMsg("Error interno:\n" .. tostring(r)); return false end
   if not r then showMsg(err); return false end
+  if #names > 0 then
+    -- superposicion: resultado = base (incognitas = 0) + suma(incognita * caso unitario)
+    local sym = {names = names, unit = {}}
+    local function run(env)
+      ENV = env
+      local ok2, r2, e2 = pcall(solve, true)
+      ENV = test
+      if not ok2 then error(tostring(r2), 0) end
+      if not r2 then error(e2, 0) end
+      return r2
+    end
+    local ok3, e3 = pcall(function()
+      sym.base = run({})
+      for _, k in ipairs(names) do sym.unit[k] = run({[k] = 1}) end
+    end)
+    ENV = test
+    if not ok3 then showMsg(tostring(e3)); return false end
+    r.sym = sym
+  end
   RES = r
   return true
+end
+
+-- Valor de un resultado como forma lineal de las incognitas
+local function SYMV(get)
+  if not RES.sym then return get(RES) end
+  local S = RES.sym
+  local c = get(S.base)
+  local f = {c = c, s = {}}
+  for _, k in ipairs(S.names) do f.s[k] = get(S.unit[k]) - c end
+  return f
+end
+
+local function symTxt()
+  if not (RES and RES.sym) then return "" end
+  local p = {}
+  for _, k in ipairs(RES.sym.names) do p[#p + 1] = k .. "=" .. fmt(ENV[k] or 0, nil, 4) end
+  return table.concat(p, ", ")
 end
 
 local function scrollTo(s, N, n)
@@ -1023,11 +1269,13 @@ local function unitOf(f, r) if f.u then return f.u(r) end return "" end
 
 local function Form(title, fields, rec, onOK, btn)
   local s = {title = title, F = fields, r = copyt(rec), sel = 1, top = 1, fresh = true, tx = {}, btn = btn or "GUARDAR"}
-  for i, f in ipairs(fields) do if f.t ~= "c" then s.tx[i] = numStr(s.r[f.k]) end end
+  local function edStr(v) if type(v) == "table" then return Lstr(v, nil, 10) end return numStr(v) end
+  for i, f in ipairs(fields) do if f.t ~= "c" then s.tx[i] = edStr(s.r[f.k]) end end
   function s:commit(i)
     local f = self.F[i]
     if not f or f.t == "c" then return nil end
-    local v = parseNum(self.tx[i])
+    local v
+    if f.sym then v = Lparse(self.tx[i]) else v = parseNum(self.tx[i]) end
     if v == nil then return "Valor invalido: " .. lab(f, self.r) end
     if f.t == "i" then
       local mx = f.mx()
@@ -1037,7 +1285,7 @@ local function Form(title, fields, rec, onOK, btn)
     if f.pos and v <= 0 then return lab(f, self.r) .. ": debe ser > 0" end
     if f.nn and v < 0 then return lab(f, self.r) .. ": no puede ser negativo" end
     self.r[f.k] = v
-    self.tx[i] = numStr(v)
+    self.tx[i] = edStr(v)
     return nil
   end
   function s:move(dl)
@@ -1263,14 +1511,14 @@ KINDS.nl = {
   title = "Cargas en nudos",
   arr = function() return M.nl end,
   row = function(i, r)
-    return "#" .. i .. "  N" .. r.n .. "   Fx=" .. fmt(r.fx, nil, 4) .. "  Fy=" .. fmt(r.fy, nil, 4) .. "  M=" .. fmt(r.m, nil, 4)
+    return "#" .. i .. "  N" .. r.n .. "   Fx=" .. Lstr(r.fx, nil, 4) .. "  Fy=" .. Lstr(r.fy, nil, 4) .. "  M=" .. Lstr(r.m, nil, 4)
   end,
   new = function() return {n = max(1, #M.nodes), fx = 0, fy = 0, m = 0} end,
   fields = function() return {
     {k = "n", l = "Nudo", t = "i", mx = function() return #M.nodes end},
-    {k = "fx", l = "Fx (+ derecha)", t = "n", u = uF},
-    {k = "fy", l = "Fy (+ arriba)", t = "n", u = uF},
-    {k = "m", l = "M (+ antihorario)", t = "n", u = uM},
+    {k = "fx", l = "Fx (+ derecha)", t = "n", u = uF, sym = true},
+    {k = "fy", l = "Fy (+ arriba)", t = "n", u = uF, sym = true},
+    {k = "m", l = "M (+ antihorario)", t = "n", u = uM, sym = true},
   } end,
   del = function(i) table.remove(M.nl, i) end,
 }
@@ -1283,11 +1531,11 @@ KINDS.el = {
   row = function(i, r)
     local t = "#" .. i .. " E" .. r.e .. " "
     if r.t == 1 then
-      t = t .. "w " .. fmt(r.v1, nil, 4) .. ".." .. fmt(r.v2, nil, 4) .. " " .. LDS[r.d] .. " [" .. fmt(r.a, nil, 4) .. "," .. (r.b > 0 and fmt(r.b, nil, 4) or "L") .. "]"
+      t = t .. "w " .. Lstr(r.v1, nil, 4) .. ".." .. Lstr(r.v2, nil, 4) .. " " .. LDS[r.d] .. " [" .. fmt(r.a, nil, 4) .. "," .. (r.b > 0 and fmt(r.b, nil, 4) or "L") .. "]"
     elseif r.t == 2 then
-      t = t .. "P=" .. fmt(r.v1, nil, 4) .. " " .. LDS[r.d] .. " a=" .. fmt(r.a, nil, 4)
+      t = t .. "P=" .. Lstr(r.v1, nil, 4) .. " " .. LDS[r.d] .. " a=" .. fmt(r.a, nil, 4)
     else
-      t = t .. "M=" .. fmt(r.v1, nil, 4) .. " a=" .. fmt(r.a, nil, 4)
+      t = t .. "M=" .. Lstr(r.v1, nil, 4) .. " a=" .. fmt(r.a, nil, 4)
     end
     return t
   end,
@@ -1296,8 +1544,8 @@ KINDS.el = {
     {k = "e", l = "Elemento", t = "i", mx = function() return #M.elems end},
     {k = "t", l = "Tipo", t = "c", o = LT},
     {k = "d", l = function(r) return r.t == 3 and "Direccion (no aplica)" or "Direccion" end, t = "c", o = LD},
-    {k = "v1", l = elLab1, t = "n", u = elU1},
-    {k = "v2", l = function(r) return r.t == 1 and "w2 (final)" or "(no aplica)" end, t = "n", u = function(r) return r.t == 1 and uW() or "" end},
+    {k = "v1", l = elLab1, t = "n", u = elU1, sym = true},
+    {k = "v2", l = function(r) return r.t == 1 and "w2 (final)" or "(no aplica)" end, t = "n", u = function(r) return r.t == 1 and uW() or "" end, sym = true},
     {k = "a", l = function(r) return r.t == 1 and "a: inicio desde i" or "a: distancia desde i" end, t = "n", u = uL, nn = true},
     {k = "b", l = function(r) return r.t == 1 and "b: fin (0 = L)" or "(no aplica)" end, t = "n", u = uL, nn = true},
   } end,
@@ -1383,11 +1631,11 @@ local function convertModel(fu0, lu0, fu1, lu1)
     p.kx = p.kx * f / l; p.ky = p.ky * f / l; p.kr = p.kr * f * l
   end
   for _, s in ipairs(M.secs) do s.E = s.E * f / (l * l); s.A = s.A * l * l; s.I = s.I * l ^ 4 end
-  for _, q in ipairs(M.nl) do q.fx = q.fx * f; q.fy = q.fy * f; q.m = q.m * f * l end
+  for _, q in ipairs(M.nl) do q.fx = Lscale(q.fx, f); q.fy = Lscale(q.fy, f); q.m = Lscale(q.m, f * l) end
   for _, q in ipairs(M.el) do
-    if q.t == 1 then q.v1 = q.v1 * f / l; q.v2 = q.v2 * f / l
-    elseif q.t == 2 then q.v1 = q.v1 * f
-    else q.v1 = q.v1 * f * l end
+    if q.t == 1 then q.v1 = Lscale(q.v1, f / l); q.v2 = Lscale(q.v2, f / l)
+    elseif q.t == 2 then q.v1 = Lscale(q.v1, f)
+    else q.v1 = Lscale(q.v1, f * l) end
     q.a = q.a * l; q.b = q.b * l
   end
 end
@@ -1572,8 +1820,12 @@ local function drawStructure(gc, tx, light)
 end
 
 local function drawLoads(gc, tx)
+  -- las cargas con incognitas se dibujan con su valor de prueba
+  local env = {}
+  for _, k in ipairs(modelSyms()) do env[k] = (type(M.symv) == "table" and M.symv[k]) or 1 end
+  local function Lval(v) return LvalE(v, env) end
   local wmax = 0
-  for _, l in ipairs(M.el) do if l.t == 1 then wmax = max(wmax, abs(l.v1), abs(l.v2)) end end
+  for _, l in ipairs(M.el) do if l.t == 1 then wmax = max(wmax, abs(Lval(l.v1)), abs(Lval(l.v2))) end end
   if wmax == 0 then wmax = 1 end
   font(gc, 7)
   for _, l in ipairs(M.el) do
@@ -1590,8 +1842,9 @@ local function drawLoads(gc, tx)
       col(gc, 200, 60, 0)
       if l.t == 1 then
         local a, b = l.a, (l.b > 0) and l.b or L
-        local w1, w2 = l.v1, l.v2
-        if b < a then a, b = b, a; w1, w2 = w2, w1 end
+        local w1, w2 = Lval(l.v1), Lval(l.v2)
+        local s1, s2 = Lstr(l.v1, nil, 4), Lstr(l.v2, nil, 4)
+        if b < a then a, b = b, a; w1, w2 = w2, w1; s1, s2 = s2, s1 end
         local pts = {}
         local n = 6
         for m = 0, n do
@@ -1605,17 +1858,17 @@ local function drawLoads(gc, tx)
           pts[#pts + 1] = Tx; pts[#pts + 1] = Ty
         end
         gc:drawPolyLine(pts)
-        local lbl = (w1 == w2) and fmt(w1, nil, 4) or (fmt(w1, nil, 4) .. "/" .. fmt(w2, nil, 4))
+        local lbl = (s1 == s2) and s1 or (s1 .. "/" .. s2)
         txt(gc, lbl, pts[7] + 2, pts[8] - 10)
       elseif l.t == 2 then
         local X, Y = tx(A.x + l.a * c, A.y + l.a * s)
-        local sg = (l.v1 >= 0) and 1 or -1
+        local sg = (Lval(l.v1) >= 0) and 1 or -1
         arrow(gc, X - Ux * sg * 28, Y - Uy * sg * 28, X, Y, 5)
-        txt(gc, fmt(l.v1, nil, 4), X - Ux * sg * 28 + 3, Y - Uy * sg * 28 - 6)
+        txt(gc, Lstr(l.v1, nil, 4), X - Ux * sg * 28 + 3, Y - Uy * sg * 28 - 6)
       else
         local X, Y = tx(A.x + l.a * c, A.y + l.a * s)
-        marc(gc, X, Y, 8, l.v1 >= 0)
-        txt(gc, fmt(l.v1, nil, 4), X + 8, Y - 16)
+        marc(gc, X, Y, 8, Lval(l.v1) >= 0)
+        txt(gc, Lstr(l.v1, nil, 4), X + 8, Y - 16)
       end
     end
   end
@@ -1624,19 +1877,21 @@ local function drawLoads(gc, tx)
     local p = M.nodes[l.n]
     if p then
       local X, Y = tx(p.x, p.y)
-      if l.fx ~= 0 then
-        local sg = l.fx > 0 and 1 or -1
+      local fx, fy, mm = Lval(l.fx), Lval(l.fy), Lval(l.m)
+      if fx ~= 0 or type(l.fx) == "table" then
+        local sg = fx >= 0 and 1 or -1
         arrow(gc, X - sg * 22, Y, X - sg * 2, Y, 5)
-        txt(gc, fmt(l.fx, nil, 4), X - sg * 22 - (sg > 0 and 12 or -2), Y - 11)
+        local st = Lstr(l.fx, nil, 4)
+        txt(gc, st, (sg > 0) and (X - 22 - tw(gc, st)) or (X + 22), Y - 11)
       end
-      if l.fy ~= 0 then
-        local sg = l.fy > 0 and 1 or -1
+      if fy ~= 0 or type(l.fy) == "table" then
+        local sg = fy >= 0 and 1 or -1
         arrow(gc, X, Y + sg * 22, X, Y + sg * 2, 5)
-        txt(gc, fmt(l.fy, nil, 4), X + 3, Y + sg * 22 - (sg > 0 and 0 or 8))
+        txt(gc, Lstr(l.fy, nil, 4), X + 3, Y + sg * 22 - (sg > 0 and 0 or 8))
       end
-      if l.m ~= 0 then
-        marc(gc, X, Y, 9, l.m > 0)
-        txt(gc, fmt(l.m, nil, 4), X + 9, Y - 18)
+      if mm ~= 0 or type(l.m) == "table" then
+        marc(gc, X, Y, 9, mm >= 0)
+        txt(gc, Lstr(l.m, nil, 4), X + 9, Y - 18)
       end
     end
   end
@@ -1807,6 +2062,7 @@ local function Canvas(mode)
       l1 = "máx " .. fmt(g.mx.v, tol) .. " (E" .. g.mx.e .. ", x=" .. fmt(g.mx.x, nil, 4) .. ")   mín " ..
            fmt(g.mn.v, tol) .. " (E" .. g.mn.e .. ", x=" .. fmt(g.mn.x, nil, 4) .. ")  [" .. QU[q]() .. "]"
       l2 = "tab: diagrama   enter: por elemento   e: ecuaciones   v: etiq."
+      if RES.sym then l2 = "Prueba: " .. symTxt() .. "   enter: elemento   e: ecuaciones" end
     else
       local f = drawDeformed(gc, tx, sc)
       local dm = RES.dmax
@@ -1909,9 +2165,24 @@ ElemView = function(k, q, x)
     local cxp = PX(self.x)
     cc(gc, C.ok); gc:drawLine(cxp, py0, cxp, py1)
     local Lf, Rt = query(ctx, X.S0, self.x)
+    local symb = self.symb and RES.sym
+    local kk, xx = self.k, self.x
+    local function at(R, side)
+      local XX = R.EL[kk]
+      local a, b = query(XX.ctx, XX.S0, xx)
+      if side == 2 then return b end
+      return a
+    end
     local function vs(qq)
       local t = 1e-9 * RES.qmax[qq]
       local a, b = Lf[qq], Rt[qq]
+      if symb then
+        local fa = Lstr(SYMV(function(R) return at(R, 1)[qq] end), t)
+        if abs(a - b) > max(t, 1e-14) then
+          return fa .. " / " .. Lstr(SYMV(function(R) return at(R, 2)[qq] end), t)
+        end
+        return fa
+      end
       if abs(a - b) > max(t, 1e-14) then return fmt(a, t) .. " / " .. fmt(b, t) end
       return fmt(a, t)
     end
@@ -1926,8 +2197,17 @@ ElemView = function(k, q, x)
     txt(gc, "N = " .. vs(1) .. " " .. uF() .. "    V = " .. vs(2) .. " " .. uF() .. "    M = " .. vs(3) .. " " .. uM(), 9, yb + 14)
     txt(gc, "θ = " .. vs(4) .. " rad    δ(y') = " .. vs(5) .. "    u(x') = " .. vs(6) .. " " .. uL(), 9, yb + 24)
     local dt = 1e-9 * max(RES.dmax.v, 1e-30)
-    txt(gc, "Global:  Δx = " .. fmt(ux, dt) .. "   Δy = " .. fmt(uy, dt) .. " " .. uL(), 9, yb + 34)
-    pie(gc, "izq/der: x  arr/ab: elem.  tab: diag.  e: ecuac.")
+    local sx, sy = fmt(ux, dt), fmt(uy, dt)
+    if symb then
+      sx = Lstr(SYMV(function(R) local S = at(R, 1); return S[6] * c - S[5] * sn end), dt)
+      sy = Lstr(SYMV(function(R) local S = at(R, 1); return S[6] * sn + S[5] * c end), dt)
+    end
+    txt(gc, "Global:  Δx = " .. sx .. "   Δy = " .. sy .. " " .. uL(), 9, yb + 34)
+    if RES.sym then
+      pie(gc, symb and ("s: ver números (" .. symTxt() .. ")") or "izq/der: x  arr/ab: elem.  e: ecuac.  s: símbolos")
+    else
+      pie(gc, "izq/der: x  arr/ab: elem.  tab: diag.  e: ecuac.")
+    end
   end
   function s:arrow(kk)
     local L = RES.EL[self.k].ctx.L
@@ -1944,7 +2224,8 @@ ElemView = function(k, q, x)
   function s:backtab() self.q = (self.q - 2) % 6 + 1 end
   function s:char(ch)
     if ch == "+" or ch == "*" then self:arrow("right") elseif ch == "-" then self:arrow("left")
-    elseif ch == "e" or ch == "E" then push(EqView(self.k)) end
+    elseif ch == "e" or ch == "E" then push(EqView(self.k))
+    elseif (ch == "s" or ch == "S") and RES.sym then self.symb = not self.symb end
   end
   function s:kEnter()
     local me = self
@@ -1963,21 +2244,43 @@ end
 ------------------------------------------------------------------
 -- Ecuaciones de cada elemento por tramos
 ------------------------------------------------------------------
+-- tramos con coeficientes en funcion de las incognitas
+local TKEYS = {"q", "p", "N", "V", "M", "EIt", "EIv"}
+local function tramosL(k)
+  if not RES.sym then return tramos(RES.EL[k]) end
+  local S = RES.sym
+  local tb = tramos(S.base.EL[k])
+  local tu = {}
+  for _, nm in ipairs(S.names) do tu[nm] = tramos(S.unit[nm].EL[k]) end
+  for i, t in ipairs(tb) do
+    for _, key in ipairs(TKEYS) do
+      local arr, out = t[key], {}
+      for j = 1, #arr do
+        local f = {c = arr[j], s = {}}
+        for _, nm in ipairs(S.names) do f.s[nm] = tu[nm][i][key][j] - arr[j] end
+        out[j] = f
+      end
+      t[key] = out
+    end
+  end
+  return tb
+end
+
 local function eqRows(k)
   local X = RES.EL[k]
   local e = M.elems[k]
   local ctx = X.ctx
   local L = ctx.L
   local rows = {}
-  local tr = tramos(X)
+  local tr = tramosL(k)
   local qm = RES.qmax
   local EI = ctx.EI
   rows[#rows + 1] = {"~", "x desde N" .. e.i .. " hacia N" .. e.j .. " [" .. uL() .. "];  F en " .. uF()}
   rows[#rows + 1] = {"EI", fmt(EI) .. " " .. uF() .. "·" .. uL() .. "²"}
   for i, t in ipairs(tr) do
     rows[#rows + 1] = {"#", "TRAMO " .. i .. ":  " .. fmt(t.xa, nil, 5) .. " ≤ x ≤ " .. fmt(t.xb, nil, 5) .. " " .. uL()}
-    local hasq = abs(t.q[1]) + abs(t.q[2]) * L > 0
-    local hasp = abs(t.p[1]) + abs(t.p[2]) * L > 0
+    local hasq = Lmag(t.q[1]) + Lmag(t.q[2]) * L > 0
+    local hasp = Lmag(t.p[1]) + Lmag(t.p[2]) * L > 0
     if hasq then rows[#rows + 1] = {"=", "q(x) = " .. polyStr(t.q, L)} end
     if hasp then rows[#rows + 1] = {"=", "p(x) = " .. polyStr(t.p, L)} end
     rows[#rows + 1] = {"=", "N(x) = " .. polyStr(t.N, L, qm[1])}
@@ -1986,12 +2289,13 @@ local function eqRows(k)
     rows[#rows + 1] = {"=", "EIθ(x) = " .. polyStr(t.EIt, L, qm[4] * EI)}
     rows[#rows + 1] = {"=", "EIδ(x) = " .. polyStr(t.EIv, L, qm[5] * EI)}
     if i < #tr then
-      for _, p in ipairs(ctx.P) do
+      for ip, p in ipairs(ctx.P) do
         if abs(p.a - t.xb) <= ctx.tol then
           local parts = {}
-          if p.py ~= 0 then parts[#parts + 1] = "Py'=" .. fmt(p.py, nil, 4) .. " (salta V)" end
-          if p.px ~= 0 then parts[#parts + 1] = "Px'=" .. fmt(p.px, nil, 4) .. " (salta N)" end
-          if p.m ~= 0 then parts[#parts + 1] = "M0=" .. fmt(p.m, nil, 4) .. " (salta M)" end
+          for _, it in ipairs({{"py", "Py'", "V"}, {"px", "Px'", "N"}, {"m", "M0", "M"}}) do
+            local f = SYMV(function(R) return R.EL[k].ctx.P[ip][it[1]] end)
+            if Lmag(f) > 0 then parts[#parts + 1] = it[2] .. "=" .. Lstr(f, nil, 4) .. " (salta " .. it[3] .. ")" end
+          end
           if #parts > 0 then rows[#rows + 1] = {"~", "En x=" .. fmt(t.xb, nil, 5) .. ": " .. table.concat(parts, ", ")} end
         end
       end
@@ -2040,31 +2344,45 @@ local function finalize(D)
   return D
 end
 
+-- celda: numero (se formatea despues) o texto en funcion de las incognitas
+local function cell(get, tol)
+  if RES.sym then return Lstr(SYMV(get), tol) end
+  return get(RES)
+end
+
 BUILD.reac = function()
   local D = {title = "Reacciones", info = RES.cls,
              head = {"Nudo", "Rx [" .. uF() .. "]", "Ry [" .. uF() .. "]", "M [" .. uM() .. "]"}, rows = {}}
-  local sx, sy = 0, 0
+  local ref = 0
+  for _, r in pairs(RES.RX) do ref = max(ref, abs(r[1]), abs(r[2]), abs(r[3])) end
+  local tol = 1e-9 * ref
   for k = 1, #M.nodes do
-    local r = RES.RX[k]
-    if r then
-      D.rows[#D.rows + 1] = {"N" .. k .. " " .. SUP[M.nodes[k].sup].s, r[1], r[2], r[3]}
-      sx = sx + r[1]; sy = sy + r[2]
+    if RES.RX[k] then
+      local row = {"N" .. k .. " " .. SUP[M.nodes[k].sup].s}
+      for a = 1, 3 do row[a + 1] = cell(function(R) return R.RX[k][a] end, tol) end
+      D.rows[#D.rows + 1] = row
     end
   end
   finalize(D)
-  local ref = 0
-  for _, r in pairs(RES.RX) do ref = max(ref, abs(r[1]), abs(r[2])) end
-  D.rows[#D.rows + 1] = {"Σ", fmt(sx, 1e-9 * ref), fmt(sy, 1e-9 * ref), ""}
+  local function sum(a) return function(R) local s = 0; for _, r in pairs(R.RX) do s = s + r[a] end; return s end end
+  local sx, sy = cell(sum(1), tol), cell(sum(2), tol)
+  if type(sx) == "number" then sx, sy = fmt(sx, tol), fmt(sy, tol) end
+  D.rows[#D.rows + 1] = {"Σ", sx, sy, ""}
   D.last = true
+  if RES.sym then D.info = "En función de: " .. table.concat(RES.sym.names, ", ") end
   return D
 end
 
 BUILD.disp = function()
   local D = {title = "Desplazamientos", info = "Globales: +X der., +Y arriba, θ+ antihorario",
              head = {"Nudo", "Δx [" .. uL() .. "]", "Δy [" .. uL() .. "]", "θ [rad]"}, rows = {}}
+  local ref = 0
+  for i = 1, #RES.d do ref = max(ref, abs(RES.d[i])) end
+  local tol = 1e-9 * ref
   for k = 1, #M.nodes do
     local b = 3 * (k - 1)
-    D.rows[#D.rows + 1] = {"N" .. k, RES.d[b + 1], RES.d[b + 2], RES.dummy[b + 3] and "(rótula)" or RES.d[b + 3]}
+    local function g(i) return cell(function(R) return R.d[b + i] end, tol) end
+    D.rows[#D.rows + 1] = {"N" .. k, g(1), g(2), RES.dummy[b + 3] and "(rótula)" or g(3)}
   end
   return finalize(D)
 end
@@ -2072,11 +2390,15 @@ end
 BUILD.ends = function()
   local D = {title = "Fuerzas en extremos", info = "N+ tracción; V, M según eje local x' (i→j)",
              head = {"Elem./ext.", "N [" .. uF() .. "]", "V [" .. uF() .. "]", "M [" .. uM() .. "]"}, rows = {}}
+  local ref = {0, 0, 0}
+  for _, X in ipairs(RES.EL) do
+    for i = 1, 3 do ref[i] = max(ref[i], abs(X.f[i]), abs(X.f[i + 3])) end
+  end
   for k, X in ipairs(RES.EL) do
     local e = M.elems[k]
-    local f = X.f
-    D.rows[#D.rows + 1] = {"E" .. k .. " i (N" .. e.i .. ")", -f[1], f[2], -f[3]}
-    D.rows[#D.rows + 1] = {"     j (N" .. e.j .. ")", f[4], -f[5], f[6]}
+    local function g(i, sg, r) return cell(function(R) return sg * R.EL[k].f[i] end, 1e-9 * ref[r]) end
+    D.rows[#D.rows + 1] = {"E" .. k .. " i (N" .. e.i .. ")", g(1, -1, 1), g(2, 1, 2), g(3, -1, 3)}
+    D.rows[#D.rows + 1] = {"     j (N" .. e.j .. ")", g(4, 1, 1), g(5, -1, 2), g(6, 1, 3)}
   end
   return finalize(D)
 end
@@ -2092,6 +2414,7 @@ BUILD.max = function()
   end
   local dm = RES.dmax
   D.rows[#D.rows + 1] = {"|Δ| total máx", fmt(dm.v), "E" .. dm.e, fmt(dm.x)}
+  if RES.sym then D.info = "Con valores de prueba: " .. symTxt() end
   return D
 end
 
@@ -2131,7 +2454,11 @@ local function Table(kind)
       font(gc, 9, ult and "b" or "r")
       for j = 1, #r do
         cc(gc, ult and C.ok or C.tx)
-        txt(gc, tostring(r[j]), cx[j], yy + 1)
+        local st = tostring(r[j])
+        local wcol = (cx[j + 1] or W - 4) - cx[j] - 3
+        if tw(gc, st) > wcol then font(gc, 7, ult and "b" or "r") end
+        txt(gc, st, cx[j], yy + 2)
+        font(gc, 9, ult and "b" or "r")
       end
     end
     barra(gc, self.top, n, N, y, N * RH)
@@ -2162,19 +2489,25 @@ local function Summary()
     local ref = 0
     for _, r in pairs(RES.RX) do ref = max(ref, abs(r[1]), abs(r[2]), abs(r[3])) end
     local tol = 1e-9 * ref
-    local sx, sy = 0, 0
+    local function rv(k, a) return Lstr(SYMV(function(R) return R.RX[k][a] end), tol) end
+    local function rsum(a) return Lstr(SYMV(function(R) local s = 0; for _, r in pairs(R.RX) do s = s + r[a] end; return s end), tol) end
     for k = 1, #M.nodes do
       local r = RES.RX[k]
       if r then
         local rs = SUP[M.nodes[k].sup].r
         local p = M.nodes[k]
-        if rs[1] == 1 or p.kx > 0 then rows[#rows + 1] = {"N" .. k .. "  Rx", fmt(r[1], tol) .. " " .. uF()} end
-        if rs[2] == 1 or p.ky > 0 then rows[#rows + 1] = {"N" .. k .. "  Ry", fmt(r[2], tol) .. " " .. uF()} end
-        if rs[3] == 1 or p.kr > 0 then rows[#rows + 1] = {"N" .. k .. "  M", fmt(r[3], tol) .. " " .. uM()} end
-        sx = sx + r[1]; sy = sy + r[2]
+        if rs[1] == 1 or p.kx > 0 then rows[#rows + 1] = {"N" .. k .. "  Rx", rv(k, 1) .. " " .. uF()} end
+        if rs[2] == 1 or p.ky > 0 then rows[#rows + 1] = {"N" .. k .. "  Ry", rv(k, 2) .. " " .. uF()} end
+        if rs[3] == 1 or p.kr > 0 then rows[#rows + 1] = {"N" .. k .. "  M", rv(k, 3) .. " " .. uM()} end
       end
     end
-    rows[#rows + 1] = {"ΣRx  /  ΣRy", fmt(sx, tol) .. "  /  " .. fmt(sy, tol)}
+    rows[#rows + 1] = {"ΣRx  /  ΣRy", rsum(1) .. "  /  " .. rsum(2)}
+    if RES.sym then
+      rows[#rows + 1] = {"#", "INCÓGNITAS"}
+      for _, k in ipairs(RES.sym.names) do rows[#rows + 1] = {"Valor de prueba " .. k, fmt(ENV[k] or 0)} end
+      rows[#rows + 1] = {"~", "Máximos y diagramas usan estos valores."}
+      rows[#rows + 1] = {"~", "Cámbielos en MODELO > Incógnitas."}
+    end
     rows[#rows + 1] = {"#", "MÁXIMOS"}
     for q = 1, 5 do
       local g = RES.gx[q]
@@ -2228,6 +2561,15 @@ EXAMPLES[5] = {"Marco a dos aguas biartic.", function()
           {e = 1, t = 1, d = 2, v1 = 3, v2 = 3, a = 0, b = 0}}
   return m end}
 
+EXAMPLES[6] = {"Viga con carga P (incógnita)", function()
+  local m = newModel()
+  m.nodes = {nd(0, 0, 3), nd(6, 0, 4)}
+  m.elems = {{i = 1, j = 2, s = 1, hi = 1, hj = 1}}
+  m.el = {{e = 1, t = 2, d = 1, v1 = {c = 0, s = {P = -1}}, v2 = 0, a = 2, b = 0},
+          {e = 1, t = 1, d = 1, v1 = -10, v2 = -10, a = 0, b = 0}}
+  m.symv = {P = 1}
+  return m end}
+
 local function loadModel(m)
   M = m; fixModel(); RES = nil
   VIEW.zoom, VIEW.px, VIEW.py = 1, 0, 0
@@ -2254,13 +2596,17 @@ end
 ------------------------------------------------------------------
 local function About()
   return Res("Acerca de", function()
-    return {head = {"MARCOS 2D  v" .. VERSION, "© 2026 " .. AUTOR},
+    return {head = {"Estruc-TI  v" .. VERSION .. "  (antes MARCOS 2D)", "© 2026 " .. AUTOR},
       rows = {
         {"#", "CRÉDITOS"},
         {"~", "Todos los derechos reservados."},
         {"~", "Basado en la app FEES del Ing. Sergio Lobo"},
         {"~", "Aguilar, docente de la Universidad de Costa Rica."},
         {"~", "Desarrollado con ayuda de la IA Claude (Anthropic)."},
+        {"#", "NOVEDADES v1.2"},
+        {"~", "Cargas incógnitas: escriba P, -2P, w, P/2..."},
+        {"~", "en el valor de una carga. Resultados en función"},
+        {"~", "de ellas y opción 'Despejar incógnita'."},
         {"#", "MÉTODO"},
         {"~", "Método directo de rigidez, 3 GDL por nudo."},
         {"~", "Diagramas por integración exacta por tramos."},
@@ -2268,6 +2614,109 @@ local function About()
         {"~", "Izquierda, abajo y horario son negativos."},
       }}
   end)
+end
+
+------------------------------------------------------------------
+-- Incognitas: valores de prueba y despeje
+------------------------------------------------------------------
+local function SymForm()
+  local names = modelSyms()
+  if #names == 0 then
+    showMsg("No hay incógnitas en el modelo.\nEscriba una letra en el valor de\nuna carga: P, -2P, w, P/2, 3+P...")
+    return
+  end
+  if type(M.symv) ~= "table" then M.symv = {} end
+  local fields, rec = {}, {}
+  for _, k in ipairs(names) do
+    fields[#fields + 1] = {k = k, l = "Valor de prueba de " .. k, t = "n"}
+    rec[k] = M.symv[k] or 1
+  end
+  push(Form("Incógnitas", fields, rec, function(r)
+    for _, k in ipairs(names) do M.symv[k] = r[k] end
+    dirty()
+  end))
+end
+
+local DMAG = {"Reacción Rx", "Reacción Ry", "Reacción M", "Nudo Δx", "Nudo Δy", "Nudo θ",
+              "N(x) en elemento", "V(x) en elemento", "M(x) en elemento", "θ(x) en elemento", "δ(x) en elemento"}
+local DUNIT = {uF, uF, uM, uL, uL, uRad, uF, uF, uM, uRad, uL}
+
+-- Funcion que lee la magnitud elegida de una solucion
+local function getter(mag, idx, x)
+  if mag <= 6 then
+    if not M.nodes[idx] then error("El nudo " .. idx .. " no existe", 0) end
+    if mag <= 3 then
+      if not RES.RX[idx] then error("El nudo " .. idx .. " no tiene apoyo", 0) end
+      return function(R) return R.RX[idx][mag] end
+    end
+    local b = 3 * (idx - 1) + (mag - 3)
+    return function(R) return R.d[b] end
+  end
+  if not M.elems[idx] then error("El elemento " .. idx .. " no existe", 0) end
+  local L = RES.EL[idx].ctx.L
+  if x > L * (1 + 1e-9) then error("x supera L = " .. fmt(L), 0) end
+  local q = mag - 6
+  return function(R) local X = R.EL[idx]; local Lf = query(X.ctx, X.S0, x); return Lf[q] end
+end
+
+-- Valor de la incognita 'name' para que la magnitud sea 'target'
+local function despejar(mag, idx, x, target, name)
+  if not RES.sym then error("El modelo no tiene incógnitas", 0) end
+  local f = SYMV(getter(mag, idx, x))
+  local b = f.s[name] or 0
+  local a = f.c
+  for k, v in pairs(f.s) do if k ~= name then a = a + v * (ENV[k] or 0) end end
+  local scale = max(Lmag(f), abs(target), 1e-30)
+  local sc = abs(ENV[name] or 1); if sc < 1 then sc = 1 end
+  if abs(b) * sc < 1e-10 * scale then error("La magnitud no depende de " .. name, 0) end
+  return (target - a) / b, f
+end
+
+local function SolveForForm()
+  if not ensure() then return end
+  if not RES.sym then
+    showMsg("No hay incógnitas en el modelo.\nEscriba una letra en el valor de\nuna carga: P, -2P, w, P/2...")
+    return
+  end
+  local names = RES.sym.names
+  push(Form("Despejar incógnita", {
+    {k = "mag", l = "Magnitud", t = "c", o = DMAG},
+    {k = "idx", l = function(r) return r.mag <= 6 and "Nudo" or "Elemento" end, t = "i",
+     mx = function() return max(#M.nodes, #M.elems) end},
+    {k = "x", l = function(r) return r.mag <= 6 and "(x no aplica)" or "x desde el nudo i" end, t = "n",
+     u = function(r) return r.mag <= 6 and "" or uL() end, nn = true},
+    {k = "obj", l = "Valor deseado", t = "n", u = function(r) return DUNIT[r.mag]() end},
+    {k = "inc", l = "Despejar", t = "c", o = names},
+  }, {mag = 2, idx = 1, x = 0, obj = 0, inc = 1}, function(r)
+    local name = names[r.inc]
+    local ok, val, f = pcall(despejar, r.mag, r.idx, r.x, r.obj, name)
+    if not ok then return tostring(val) end
+    local where = (r.mag <= 6) and ("N" .. r.idx) or ("E" .. r.idx .. ", x=" .. fmt(r.x))
+    local tol = 1e-9 * max(Lmag(f), 1e-30)
+    local rows = {
+      {"#", "CONDICIÓN"},
+      {"Magnitud", DMAG[r.mag] .. " (" .. where .. ")"},
+      {"=", "= " .. Lstr(f, tol) .. " " .. DUNIT[r.mag]()},
+      {"Valor deseado", fmt(r.obj) .. " " .. DUNIT[r.mag]()},
+      {"#", "RESULTADO"},
+      {name, fmt(val, nil, 6)},
+    }
+    if #names > 1 then
+      rows[#rows + 1] = {"~", "Las otras incógnitas usan su valor de prueba."}
+    end
+    rows[#rows + 1] = {"~", name .. " en las unidades de la carga donde aparece."}
+    stack[#stack] = Res("Despeje", function()
+      return {head = {"Para " .. DMAG[r.mag] .. " = " .. fmt(r.obj), name .. " = " .. fmt(val, nil, 6)},
+              rows = rows, foot = "enter: usar como valor de prueba   esc: volver"}
+    end, {enter = function()
+      M.symv[name] = val
+      dirty()
+      pop()
+      showMsg("Valor de prueba actualizado:\n" .. name .. " = " .. fmt(val, nil, 6))
+    end})
+    inv()
+    return "__keep"
+  end, "DESPEJAR"))
 end
 
 local function doSolve()
@@ -2299,6 +2748,7 @@ local HomeItems = {
   {"Elementos y rótulas", function() push(List("elems")) end},
   {"Cargas en nudos", function() push(List("nl")) end},
   {"Cargas en elementos", function() push(List("el")) end},
+  {"Incógnitas (P, w...)", SymForm},
   {"Ver modelo", function() push(Canvas(1)) end},
   {"SOLUCIÓN", nil, hd = true},
   {"RESOLVER", doSolve},
@@ -2306,6 +2756,7 @@ local HomeItems = {
   {"Diagrama por elemento", needRes(function() push(ElemView(1, 3, 0)) end)},
   {"Ecuaciones por tramo", needRes(function() push(EqView(1)) end)},
   {"Punto de interés (x)", goPoint},
+  {"Despejar incógnita", SolveForForm},
   {"Reacciones", needRes(function() push(Table("reac")) end)},
   {"Desplazamientos", needRes(function() push(Table("disp")) end)},
   {"Fuerzas en extremos", needRes(function() push(Table("ends")) end)},
@@ -2315,7 +2766,7 @@ local HomeItems = {
   {"Acerca de", function() push(About()) end},
 }
 
-local Home = Menu("MARCOS 2D  v" .. VERSION, HomeItems, "© 2026 Juan Vargas    enter: elegir   menu: más")
+local Home = Menu("Estruc-TI  v" .. VERSION, HomeItems, "© 2026 Juan Vargas    enter: elegir   menu: más")
 
 ------------------------------------------------------------------
 -- Menu de la calculadora (tecla menu)
@@ -2336,6 +2787,7 @@ if toolpalette and toolpalette.register then
       {"Elementos", goto0(function() push(List("elems")) end)},
       {"Cargas en nudos", goto0(function() push(List("nl")) end)},
       {"Cargas en elementos", goto0(function() push(List("el")) end)},
+      {"Incognitas (P, w...)", goto0(SymForm)},
       {"Ver modelo", goto0(function() push(Canvas(1)) end)}},
     {"Resultados",
       {"Resolver", goto0(doSolve)},
@@ -2343,6 +2795,7 @@ if toolpalette and toolpalette.register then
       {"Por elemento", goto0(needRes(function() push(ElemView(1, 3, 0)) end))},
       {"Ecuaciones", goto0(needRes(function() push(EqView(1)) end))},
       {"Punto de interes", goto0(goPoint)},
+      {"Despejar incognita", goto0(SolveForForm)},
       {"Reacciones", goto0(needRes(function() push(Table("reac")) end))},
       {"Desplazamientos", goto0(needRes(function() push(Table("disp")) end))},
       {"Fuerzas en extremos", goto0(needRes(function() push(Table("ends")) end))},
@@ -2445,4 +2898,6 @@ MARCOS2D = {solve = solve, query = query, setModel = function(m) loadModel(m) en
             Canvas = Canvas, Table = Table, ElemView = ElemView, List = List, UnitsForm = UnitsForm,
             ExamplesMenu = ExamplesMenu, res = function() return RES end, ensure = ensure,
             msg = function() return MSG end, fmt = fmt, tramos = tramos, polyEval = polyEval,
-            EqView = EqView, Summary = Summary, About = About, polyStr = polyStr}
+            EqView = EqView, Summary = Summary, About = About, polyStr = polyStr,
+            Lparse = Lparse, Lstr = Lstr, SYMV = SYMV, despejar = despejar, modelSyms = modelSyms,
+            tramosL = tramosL, SymForm = SymForm, SolveForForm = SolveForForm, Lval = Lval}
