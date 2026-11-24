@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versión-1.1-1d4f9c?style=for-the-badge">
+  <img alt="Versión" src="https://img.shields.io/badge/versión-1.2-1d4f9c?style=for-the-badge">
   <img alt="Plataforma" src="https://img.shields.io/badge/TI--Nspire-CX%20II%20%2F%20CX%20II%20CAS-0b1f4d?style=for-the-badge">
   <img alt="Lua" src="https://img.shields.io/badge/Lua-apilevel%202.4-2C2D72?style=for-the-badge&logo=lua&logoColor=white">
   <a href="https://github.com/juanvah14-civ/Estruc-TI/releases/latest"><img alt="Descargar" src="https://img.shields.io/github/v/release/juanvah14-civ/Estruc-TI?label=descargar&style=for-the-badge&color=3d8bfd&logo=github"></a>
@@ -12,7 +12,7 @@
 
 <p align="center">
   <b>Resuelve vigas, marcos y armaduras 2D directamente en tu calculadora</b><br>
-  Reacciones · desplazamientos · diagramas N, V, M, θ, δ · deformada · ecuaciones por tramo
+  Reacciones · desplazamientos · diagramas N, V, M, θ, δ · deformada · ecuaciones por tramo · cargas incógnitas (P, w…)
 </p>
 
 <p align="center">
@@ -48,6 +48,18 @@ estructuras planas formadas por barras con el **método directo de rigidez** (3 
 estructuras **isostáticas e hiperestáticas** de cualquier grado y fue pensada como herramienta para
 **verificar ejercicios** de Mecánica de Sólidos y Análisis Estructural sin necesidad de una computadora.
 
+## 🆕 Novedades de la versión 1.2 — cargas incógnitas
+
+- Escribe **letras en el valor de una carga**: `P`, `-2P`, `P/2`, `w`, `3+0.5w`, `2(P+1)`… (una o varias incógnitas).
+- Reacciones, desplazamientos, fuerzas en extremos y **ecuaciones por tramo** salen **en función de las incógnitas**,
+  por ejemplo `Ry1 = 30 + 0.66667P` o `M(x) = (30 + 0.66667P)x − 5x²`.
+- **Despejar incógnita**: ¿qué `P` hace que Ry1 = 40 kN, que la flecha en un punto sea −10 mm o que M(x) = 0? La app
+  lo calcula directamente.
+- Diagramas, deformada y máximos usan un **valor de prueba** de cada incógnita (por defecto 1), editable.
+- La app ahora se llama **Estruc-TI** también dentro de la calculadora.
+
+Ver el [historial completo de cambios](CHANGELOG.md).
+
 ## 🧰 Qué puede hacer
 
 | | Función | Detalle |
@@ -62,6 +74,7 @@ estructuras **isostáticas e hiperestáticas** de cualquier grado y fue pensada 
 | 📊 | **Resultados** | Reacciones con verificación ΣF, desplazamientos, fuerzas en extremos, tabla de máximos, diagramas N · V · M · θ · δ y deformada |
 | 🎯 | **Punto de interés** | Cursor sobre cada elemento o una *x* exacta; en cargas puntuales muestra el salto `izq / der` |
 | 📝 | **Ecuaciones por tramo** *(v1.1)* | Expresiones de los esfuerzos de cada elemento por tramos |
+| 🔣 | **Cargas incógnitas** *(v1.2)* | Cargas como `P`, `-2P`, `w`; resultados en función de ellas y despeje de la incógnita para una condición dada |
 
 > [!TIP]
 > En los campos numéricos se pueden escribir **expresiones** que evalúa la calculadora: `200E6`, `0.3*0.5^3/12`, `√(2)`.
@@ -99,17 +112,52 @@ Inicio → Unidades → Nudos y apoyos → Secciones → Elementos → Cargas �
 5. **Cargas** en nudos y en elementos.
 6. **>> RESOLVER** y recorre los diagramas con `tab`.
 
-¿Quieres probar sin escribir nada? **Inicio → Ejemplos** trae cinco modelos listos.
+¿Quieres probar sin escribir nada? **Inicio → Ejemplos** trae seis modelos listos.
 
 ### ⌨️ Teclas
 
 | Tecla | Acción | Tecla | Acción |
 |:-:|---|:-:|---|
 | `▲▼◄►` | Moverse, desplazar el dibujo, mover el cursor | `+` / `−` | Agregar registro · acercar / alejar |
-| `enter` | Abrir, editar o **guardar** formulario | `del` | Borrar registro (pide confirmación) |
+| `enter` | Abrir · en formularios pasa al siguiente campo (al final, **GUARDAR**) | `del` | Borrar registro (pide confirmación) |
 | `esc` | Volver o cancelar | `0` | Ajustar el dibujo a la pantalla |
 | `tab` | Siguiente diagrama o campo | `v` | Etiquetas: ninguna → máx./mín. → extremos |
 | `menu` | Archivo, Modelo, Resultados | `n` | Mostrar / ocultar numeración |
+| `e` | Ecuaciones por tramo (desde diagramas) | `s` | Valores en función de las incógnitas (vista por elemento) |
+
+### 🔣 Cargas incógnitas (P, w…)
+
+1. En **Cargas en nudos** o **Cargas en elementos**, escribe la incógnita en el valor: `-P` (P hacia abajo), `2P`,
+   `w`, `P/2`, `10+P`… Solo se aceptan expresiones **lineales** (no `P*P` ni `1/P`).
+2. **RESOLVER**: las reacciones aparecen como `30 + 0.66667P`. También las tablas, las **ecuaciones por tramo** y la
+   vista por elemento (tecla `s`).
+3. **Modelo → Incógnitas** cambia el valor de prueba con que se dibujan los diagramas y se buscan los máximos.
+4. **Solución → Despejar incógnita**: elige la magnitud (reacción, desplazamiento de nudo o N, V, M, θ, δ en un punto),
+   el valor deseado y la incógnita. Con `enter` puedes usar el resultado como nuevo valor de prueba.
+
+> [!NOTE]
+> La estructura es lineal, así que los resultados se obtienen **por superposición exacta** (un cálculo con las
+> incógnitas en cero y uno por cada incógnita). La posición de los máximos sí depende del valor de las incógnitas,
+> por eso los diagramas usan los valores de prueba.
+
+<table>
+  <tr>
+    <td><img src="docs/img/28_incog_solucion.jpg" alt="Reacciones en función de P"></td>
+    <td><img src="docs/img/29_incog_ecuaciones.jpg" alt="Ecuaciones por tramo con P"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Reacciones en función de P</sub></td>
+    <td align="center"><sub>Ecuaciones por tramo con P</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/img/30_incog_elemento.jpg" alt="Valores en un punto en función de P"></td>
+    <td><img src="docs/img/31_incog_despeje.jpg" alt="Despeje de P"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Punto de interés en función de P (tecla s)</sub></td>
+    <td align="center"><sub>Despejar P para que Ry1 = 40 kN</sub></td>
+  </tr>
+</table>
 
 ## 📸 Capturas
 
@@ -194,11 +242,12 @@ Inicio → Unidades → Nudos y apoyos → Secciones → Elementos → Cargas �
 | 3 | Viga continua de 2 tramos | Hiperestática grado 1 |
 | 4 | Viga Gerber (empotrada + rótula + rodillo) | Isostática · Ry1 = 50 kN · M1 = 120 kN·m · R3 = 10 kN |
 | 5 | Marco a dos aguas biarticulado | Hiperestático grado 1 · carga proyectada en el techo y viento en la columna |
+| 6 | *(en el menú: "Viga con carga P")* Viga simple L = 6 m, w = −10 kN/m y carga −P en x = 2 m | Ry1 = 30 + 0.66667P · Ry2 = 30 + 0.33333P · M(2) = 40 + 1.3333P · Ry1 = 40 kN ⇒ P = 15 kN |
 
 ## ✅ Validación
 
 - Los esfuerzos N, V, M, θ y δ se integran **en forma exacta** en cada barra (no por subdivisión); los máximos interiores se refinan numéricamente.
-- **71 comprobaciones automáticas** contra soluciones analíticas: viga simple, biempotrada, apoyada-empotrada, Gerber, armadura, asentamientos, resortes, carga triangular, barra inclinada, carga parcial, momento aplicado y conversión de unidades.
+- **105 comprobaciones automáticas** contra soluciones analíticas: viga simple, biempotrada, apoyada-empotrada, Gerber, armadura, asentamientos, resortes, carga triangular, barra inclinada, carga parcial, momento aplicado, conversión de unidades y, desde la v1.2, cargas incógnitas (superposición en vigas y marcos hiperestáticos, ecuaciones simbólicas y despeje).
 - El marco del ejemplo 2 se compara además contra un **solver independiente** escrito en Python.
 
 Para correr las pruebas en PC (Lua 5.1 vía [`lupa`](https://pypi.org/project/lupa/), con la API de la Nspire simulada):

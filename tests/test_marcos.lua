@@ -268,4 +268,119 @@ do
   yes(A.polyStr({0, 30, -5}, 6) == "30x - 5x²", "Formato M(x): " .. A.polyStr({0, 30, -5}, 6))
 end
 
+-- 16) Cargas incognitas (v1.2)
+do
+  -- lectura de expresiones lineales
+  local function lin(s) return A.Lparse(s) end
+  local function coef(v, k) if type(v) == "table" then return v.s[k] or 0 end return 0 end
+  local function cst(v) if type(v) == "table" then return v.c end return v end
+  local v = lin("P");          yes(coef(v, "P") == 1 and cst(v) == 0, "Lparse P")
+  v = lin("-2P");              yes(coef(v, "P") == -2, "Lparse -2P")
+  v = lin("P/2");              yes(coef(v, "P") == 0.5, "Lparse P/2")
+  v = lin("3+0.5*w");          yes(cst(v) == 3 and coef(v, "w") == 0.5, "Lparse 3+0.5*w")
+  v = lin("2(P+1)");           yes(cst(v) == 2 and coef(v, "P") == 2, "Lparse 2(P+1)")
+  v = lin("−P−Q");             yes(coef(v, "P") == -1 and coef(v, "Q") == -1, "Lparse con signo de la calculadora")
+  yes(lin("1.5E3") == 1500 and lin("2ᴇ6") == 2e6, "Lparse notacion cientifica")
+  yes(lin("P*P") == nil and lin("2/P") == nil, "Lparse rechaza expresiones no lineales")
+  yes(A.Lstr({c = 30, s = {P = 2 / 3}}) == "30 + 0.66667P", "Lstr: " .. A.Lstr({c = 30, s = {P = 2 / 3}}))
+  yes(A.Lstr({c = 0, s = {P = -1}}) == "-P", "Lstr -P")
+
+  -- viga simple con P en x = 2 y w = -10 (ejemplo 6)
+  A.setModel(A.examples[6][2]())
+  yes(#A.modelSyms() == 1 and A.modelSyms()[1] == "P", "Detecta la incognita P")
+  yes(A.ensure() and A.res().sym ~= nil, "Resuelve con incognitas")
+  local R1 = A.SYMV(function(R) return R.RX[1][2] end)
+  near(R1.c, 30, 1e-9, "Ry1 parte constante"); near(R1.s.P, 4 / 6, 1e-9, "Ry1 coeficiente de P")
+  local R2 = A.SYMV(function(R) return R.RX[2][2] end)
+  near(R2.s.P, 2 / 6, 1e-9, "Ry2 coeficiente de P")
+  local M2 = A.SYMV(function(R) local X = R.EL[1]; return A.query(X.ctx, X.S0, 2)[3] end)
+  near(M2.c, 40, 1e-9, "M(2) constante"); near(M2.s.P, 4 / 3, 1e-9, "M(2) coeficiente de P")
+  local Pv = A.despejar(2, 1, 0, 40, "P")
+  near(Pv, 15, 1e-9, "Despejar P para Ry1 = 40")
+  Pv = A.despejar(9, 1, 2, 100, "P")
+  near(Pv, 45, 1e-9, "Despejar P para M(2) = 100")
+  local d5 = A.SYMV(function(R) return R.d[5] end)
+  yes(d5.c == 0 and d5.s.P == 0, "Nudo con apoyo sin desplazamiento")
+  -- valor de prueba distinto: el calculo numerico coincide con la forma lineal
+  local m6 = A.examples[6][2](); m6.symv = {P = 7}
+  A.setModel(m6); A.ensure()
+  near(A.res().RX[1][2], 30 + 7 * 4 / 6, 1e-9, "Resultado numerico con P de prueba = 7")
+
+  -- marco hiperestatico (ejemplo 2) con la carga lateral como incognita H
+  local mf = A.examples[2][2]()
+  mf.nl[1].fx = {c = 0, s = {H = 1}}
+  mf.symv = {H = 3}
+  A.setModel(mf); A.ensure()
+  local function lin20(get) local f = A.SYMV(get); return f.c + 20 * f.s.H end
+  near(lin20(function(R) return R.RX[1][1] end), 2.6006, 1e-4, "Marco: Rx1 con H = 20")
+  near(lin20(function(R) return R.RX[1][3] end), 7.2981, 1e-4, "Marco: M1 con H = 20")
+  near(lin20(function(R) return R.RX[4][3] end), 40.7303, 1e-4, "Marco: M4 con H = 20")
+  near(A.despejar(1, 1, 0, 2.6006, "H"), 20, 1e-4, "Marco: despejar H")
+
+  -- ecuaciones por tramo con coeficientes simbolicos
+  A.setModel(A.examples[6][2]()); A.ensure()
+  local worst = 0
+  for _, Ptest in ipairs({0, 1, -3.5}) do
+    local tr = A.tramosL(1)
+    for _, t in ipairs(tr) do
+      for s = 0, 3 do
+        local x = t.xa + (t.xb - t.xa) * (0.1 + 0.8 * s / 3)
+        local function ev(poly)
+          local c = {}
+          for j = 1, #poly do c[j] = poly[j].c + (poly[j].s.P or 0) * Ptest end
+          return A.polyEval(c, x)
+        end
+        local mm = A.examples[6][2](); mm.symv = {P = Ptest}
+        A.setModel(mm); A.ensure()
+        local Rn = A.res()
+        local Lf = A.query(Rn.EL[1].ctx, Rn.EL[1].S0, x)
+        worst = math.max(worst, math.abs(ev(t.V) - Lf[2]) / 50, math.abs(ev(t.M) - Lf[3]) / 100)
+        A.setModel(A.examples[6][2]()); A.ensure()
+      end
+    end
+  end
+  yes(worst < 1e-9, "Ecuaciones con P coinciden con el calculo directo (" .. worst .. ")")
+  local s = A.polyStr({{c = 30, s = {P = 0.5}}, {c = -10, s = {}}}, 6)
+  yes(s == "30 + 0.5P - 10x", "polyStr simbolico: " .. s)
+
+  -- conversion de unidades y guardado
+  local mu = A.examples[6][2]()
+  A.setModel(mu)
+  local saved = A.deser(A.ser(A.getModel()))
+  yes(type(saved.el[1].v1) == "table" and saved.el[1].v1.s.P == -1, "Guardar/restaurar carga con P")
+  local function topf() local st = A.stack(); return st[#st] end
+  A.push(A.UnitsForm()); A.key("arrow", "left"); A.key("arrow", "left"); A.key("arrow", "down"); A.key("arrow", "left"); A.key("arrow", "left")
+  local f = topf(); for _ = 1, 10 do if topf() ~= f then break end; A.key("kEnter") end
+  near(A.getModel().el[1].v1.s.P, -1000 / 4.4482216152605, 1e-9, "Conversion kN -> lbf de la carga P")
+
+  -- escribir "-2P" en el formulario de una carga
+  A.setModel(A.examples[1][2]())
+  A.push(A.List("el")); A.key("kEnter")
+  A.key("arrow", "down"); A.key("arrow", "down"); A.key("arrow", "down")
+  A.key("char", "−"); A.key("char", "2"); A.key("char", "P")
+  f = topf(); for _ = 1, 10 do if topf() ~= f then break end; A.key("kEnter") end
+  local v1 = A.getModel().el[1].v1
+  yes(type(v1) == "table" and v1.s.P == -2, "Formulario acepta -2P")
+  A.key("kEsc")
+  -- pantallas con incognitas
+  A.setModel(A.examples[6][2]()); A.ensure()
+  local function paint() on.paint(gc); local mm = A.msg(); if mm and mm.text:find("Error") then error(mm.text) end end
+  A.push(A.Summary()); for _ = 1, 25 do paint(); A.key("arrow", "down") end; A.key("kEsc")
+  for _, k in ipairs({"reac", "disp", "ends", "max"}) do A.push(A.Table(k)); paint(); A.key("kEsc") end
+  A.push(A.EqView(1)); for _ = 1, 20 do paint(); A.key("arrow", "down") end; A.key("kEsc")
+  A.push(A.ElemView(1, 3, 2)); paint(); A.key("char", "s"); paint(); A.key("arrow", "right"); paint(); A.key("kEsc")
+  A.push(A.Canvas(1)); for _ = 1, 8 do paint(); A.key("tab") end; A.key("kEsc")
+  A.SymForm(); paint(); A.key("char", "4"); f = topf(); for _ = 1, 5 do if topf() ~= f then break end; A.key("kEnter") end
+  near(A.getModel().symv.P, 4, 1e-12, "Formulario de valores de prueba")
+  A.SolveForForm(); paint()
+  f = topf(); for _ = 1, 3 do A.key("arrow", "down") end; A.key("char", "4"); A.key("char", "0")
+  for _ = 1, 6 do if topf() ~= f then break end; A.key("kEnter") end
+  paint()
+  local ok = topf().D and topf().D.head and topf().D.head[2]:find("P = 15")
+  yes(ok, "Pantalla de despeje muestra P = 15")
+  A.key("kEnter"); paint()
+  near(A.getModel().symv.P, 15, 1e-9, "Usar valor despejado como valor de prueba")
+  if A.msg() then A.key("kEsc") end
+end
+
 print(string.format("OK: %d   FALLAS: %d", nok, nfail))
