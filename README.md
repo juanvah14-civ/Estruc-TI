@@ -6,12 +6,17 @@
   <img alt="Versión" src="https://img.shields.io/badge/versión-1.1-1d4f9c?style=for-the-badge">
   <img alt="Plataforma" src="https://img.shields.io/badge/TI--Nspire-CX%20II%20%2F%20CX%20II%20CAS-0b1f4d?style=for-the-badge">
   <img alt="Lua" src="https://img.shields.io/badge/Lua-apilevel%202.4-2C2D72?style=for-the-badge&logo=lua&logoColor=white">
+  <a href="https://github.com/juanvah14-civ/Estruc-TI/releases/latest"><img alt="Descargar" src="https://img.shields.io/github/v/release/juanvah14-civ/Estruc-TI?label=descargar&style=for-the-badge&color=3d8bfd&logo=github"></a>
   <a href="https://github.com/juanvah14-civ/Estruc-TI/actions/workflows/pruebas.yml"><img alt="Pruebas" src="https://img.shields.io/github/actions/workflow/status/juanvah14-civ/Estruc-TI/pruebas.yml?branch=main&label=pruebas&style=for-the-badge"></a>
 </p>
 
 <p align="center">
   <b>Resuelve vigas, marcos y armaduras 2D directamente en tu calculadora</b><br>
   Reacciones · desplazamientos · diagramas N, V, M, θ, δ · deformada · ecuaciones por tramo
+</p>
+
+<p align="center">
+  <a href="https://github.com/juanvah14-civ/Estruc-TI/releases/latest/download/Estruc-TI.tns"><img alt="Descargar Estruc-TI.tns" src="https://img.shields.io/badge/⬇%20Descargar-Estruc--TI.tns-3d8bfd?style=for-the-badge"></a>
 </p>
 
 <p align="center">
@@ -65,9 +70,10 @@ estructuras **isostáticas e hiperestáticas** de cualquier grado y fue pensada 
 
 ### Opción A — pasar el `.tns` a la calculadora
 
-1. Conecta la calculadora por USB y abre **TI-Nspire CX CAS Student Software** (o *TI-Nspire Computer Link*).
-2. En el **Explorador de contenido**, arrastra el archivo `.tns` de la app a la calculadora.
-3. En la calculadora: **[home] → Mis documentos** y abre la app.
+1. Descarga [**`Estruc-TI.tns`**](https://github.com/juanvah14-civ/Estruc-TI/releases/latest/download/Estruc-TI.tns) desde la [última versión](https://github.com/juanvah14-civ/Estruc-TI/releases/latest).
+2. Conecta la calculadora por USB y abre **TI-Nspire CX CAS Student Software** (o *TI-Nspire Computer Link*).
+3. En el **Explorador de contenido**, arrastra `Estruc-TI.tns` a la calculadora.
+4. En la calculadora: **[home] → Mis documentos** → `Estruc-TI`.
 
 ### Opción B — crear el `.tns` desde el código
 
