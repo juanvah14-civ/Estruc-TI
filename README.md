@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versión-1.2-1d4f9c?style=for-the-badge">
+  <img alt="Versión" src="https://img.shields.io/badge/versión-1.3-1d4f9c?style=for-the-badge">
   <img alt="Plataforma" src="https://img.shields.io/badge/TI--Nspire-CX%20II%20%2F%20CX%20II%20CAS-0b1f4d?style=for-the-badge">
   <img alt="Lua" src="https://img.shields.io/badge/Lua-apilevel%202.4-2C2D72?style=for-the-badge&logo=lua&logoColor=white">
   <a href="https://github.com/juanvah14-civ/Estruc-TI/releases/latest"><img alt="Descargar" src="https://img.shields.io/github/v/release/juanvah14-civ/Estruc-TI?label=descargar&style=for-the-badge&color=3d8bfd&logo=github"></a>
@@ -12,7 +12,7 @@
 
 <p align="center">
   <b>Resuelve vigas, marcos y armaduras 2D directamente en tu calculadora</b><br>
-  Reacciones · desplazamientos · diagramas N, V, M, θ, δ · deformada · ecuaciones por tramo · cargas incógnitas (P, w…)
+  Editor gráfico · reacciones · desplazamientos · diagramas N, V, M, θ, δ · deformada · ecuaciones por tramo · cargas incógnitas (P, w…)
 </p>
 
 <p align="center">
@@ -48,7 +48,33 @@ estructuras planas formadas por barras con el **método directo de rigidez** (3 
 estructuras **isostáticas e hiperestáticas** de cualquier grado y fue pensada como herramienta para
 **verificar ejercicios** de Mecánica de Sólidos y Análisis Estructural sin necesidad de una computadora.
 
-## 🆕 Novedades de la versión 1.2 — cargas incógnitas
+## 🆕 Novedades de la versión 1.3 — editor gráfico
+
+- **Dibuja la estructura** con un cursor sobre una malla: crea nudos, cambia apoyos, une nudos con barras (marco o
+  armadura) y coloca cargas viendo el modelo en todo momento (*Modelo → Editor gráfico*).
+- Las listas de nudos, elementos y cargas muestran una **vista previa** con el registro seleccionado resaltado.
+- **Diagramas y tablas más legibles**: los valores ya no se enciman y las columnas se ajustan a su contenido.
+
+<table>
+  <tr>
+    <td><img src="docs/img/32_editor_nudos.jpg" alt="Editor gráfico: nudos y apoyos"></td>
+    <td><img src="docs/img/33_editor_barras.jpg" alt="Editor gráfico: barras de una armadura"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Editor gráfico: nudos sobre la malla y apoyos</sub></td>
+    <td align="center"><sub>Editor gráfico: barras de armadura</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/img/34_lista_vista.jpg" alt="Lista con vista previa"></td>
+    <td><img src="docs/img/35_etiquetas.jpg" alt="Diagrama con etiquetas legibles"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Lista con vista previa del elemento seleccionado</sub></td>
+    <td align="center"><sub>Etiquetas sin encimarse</sub></td>
+  </tr>
+</table>
+
+### Novedades de la versión 1.2 — cargas incógnitas
 
 - Escribe **letras en el valor de una carga**: `P`, `-2P`, `P/2`, `w`, `3+0.5w`, `2(P+1)`… (una o varias incógnitas).
 - Reacciones, desplazamientos, fuerzas en extremos y **ecuaciones por tramo** salen **en función de las incógnitas**,
@@ -74,6 +100,7 @@ Ver el [historial completo de cambios](CHANGELOG.md).
 | 📊 | **Resultados** | Reacciones con verificación ΣF, desplazamientos, fuerzas en extremos, tabla de máximos, diagramas N · V · M · θ · δ y deformada |
 | 🎯 | **Punto de interés** | Cursor sobre cada elemento o una *x* exacta; en cargas puntuales muestra el salto `izq / der` |
 | 📝 | **Ecuaciones por tramo** *(v1.1)* | Expresiones de los esfuerzos de cada elemento por tramos |
+| ✏️ | **Editor gráfico** *(v1.3)* | Nudos, barras y cargas con un cursor sobre una malla; vista previa en las listas |
 | 🔣 | **Cargas incógnitas** *(v1.2)* | Cargas como `P`, `-2P`, `w`; resultados en función de ellas y despeje de la incógnita para una condición dada |
 
 > [!TIP]
@@ -112,7 +139,7 @@ Inicio → Unidades → Nudos y apoyos → Secciones → Elementos → Cargas �
 5. **Cargas** en nudos y en elementos.
 6. **>> RESOLVER** y recorre los diagramas con `tab`.
 
-¿Quieres probar sin escribir nada? **Inicio → Ejemplos** trae seis modelos listos.
+¿Quieres probar sin escribir nada? **Inicio → Ejemplos** trae siete modelos listos.
 
 ### ⌨️ Teclas
 
@@ -124,6 +151,19 @@ Inicio → Unidades → Nudos y apoyos → Secciones → Elementos → Cargas �
 | `tab` | Siguiente diagrama o campo | `v` | Etiquetas: ninguna → máx./mín. → extremos |
 | `menu` | Archivo, Modelo, Resultados | `n` | Mostrar / ocultar numeración |
 | `e` | Ecuaciones por tramo (desde diagramas) | `s` | Valores en función de las incógnitas (vista por elemento) |
+
+### ✏️ Editor gráfico
+
+*Modelo → Editor gráfico* (o `enter` en *Ver modelo*). Las flechas mueven el cursor sobre la malla y `tab` cambia de modo:
+
+| Modo | `enter` | Otras teclas |
+|---|---|---|
+| **Nudos** | Crea un nudo en el cursor o edita el que está debajo | `a` cambia el apoyo · `del` borra · `g` paso de la malla |
+| **Barras** | En un nudo inicia la barra; en otro nudo la termina (se puede seguir encadenando) | `t` marco / armadura · `esc` termina la cadena · `del` borra la barra |
+| **Cargas** | Sobre un nudo: carga en el nudo · sobre una barra: carga puntual en ese punto | `del` borra las cargas de ese nudo o barra |
+
+Las barras se orientan solas (vigas de izquierda a derecha, columnas de abajo hacia arriba) para que los signos sigan la
+convención del curso. En las listas, `v` muestra u oculta la vista previa y `g` abre el editor.
 
 ### 🔣 Cargas incógnitas (P, w…)
 
@@ -243,11 +283,12 @@ Inicio → Unidades → Nudos y apoyos → Secciones → Elementos → Cargas �
 | 4 | Viga Gerber (empotrada + rótula + rodillo) | Isostática · Ry1 = 50 kN · M1 = 120 kN·m · R3 = 10 kN |
 | 5 | Marco a dos aguas biarticulado | Hiperestático grado 1 · carga proyectada en el techo y viento en la columna |
 | 6 | *(en el menú: "Viga con carga P")* Viga simple L = 6 m, w = −10 kN/m y carga −P en x = 2 m | Ry1 = 30 + 0.66667P · Ry2 = 30 + 0.33333P · M(2) = 40 + 1.3333P · Ry1 = 40 kN ⇒ P = 15 kN |
+| 7 | *(en el menú: "Armadura con carga P")* Armadura de 5 barras, 6 m de luz y 3 m de altura, carga −P en la cumbrera | Isostática · Ry = 0.5P en cada apoyo · diagonales −0.70711P · cordón inferior 0.5P |
 
 ## ✅ Validación
 
 - Los esfuerzos N, V, M, θ y δ se integran **en forma exacta** en cada barra (no por subdivisión); los máximos interiores se refinan numéricamente.
-- **105 comprobaciones automáticas** contra soluciones analíticas: viga simple, biempotrada, apoyada-empotrada, Gerber, armadura, asentamientos, resortes, carga triangular, barra inclinada, carga parcial, momento aplicado, conversión de unidades y, desde la v1.2, cargas incógnitas (superposición en vigas y marcos hiperestáticos, ecuaciones simbólicas y despeje).
+- **132 comprobaciones automáticas** contra soluciones analíticas: viga simple, biempotrada, apoyada-empotrada, Gerber, armadura, asentamientos, resortes, carga triangular, barra inclinada, carga parcial, momento aplicado, conversión de unidades y, desde la v1.2, cargas incógnitas (superposición en vigas y marcos hiperestáticos, ecuaciones simbólicas y despeje).
 - El marco del ejemplo 2 se compara además contra un **solver independiente** escrito en Python.
 
 Para correr las pruebas en PC (Lua 5.1 vía [`lupa`](https://pypi.org/project/lupa/), con la API de la Nspire simulada):

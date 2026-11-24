@@ -2,6 +2,7 @@
   Estruc-TI (antes MARCOS 2D) - Analisis de marcos planos por rigidez
   Para TI-Nspire CX II / CX II CAS  (Lua, platform.apilevel 2.4)
 
+  Version 1.3 (editor grafico con malla y vista previa en las listas)
   Version 1.2 (cargas incognitas: P, w... y despeje de incognitas)
   Version 1.1 (nueva interfaz + ecuaciones por tramo)
   Basado en la app FEES del Ing. Sergio Lobo Aguilar (UCR).
@@ -27,7 +28,7 @@ local floor, ceil, abs, sqrt, max, min = math.floor, math.ceil, math.abs, math.s
 local HUGE = math.huge
 local W, H = 318, 212
 local AUTOR = "Juan Vargas"
-local VERSION = "1.2"
+local VERSION = "1.3"
 
 ------------------------------------------------------------------
 -- Unidades y catalogos
@@ -1108,6 +1109,7 @@ local function Menu(title, items, foot)
         local ns = tostring(num)
         cc(gc, C.w); txt(gc, ns, 21 - floor(tw(gc, ns) / 2), y + 2)
         font(gc, 10, act and "b" or "r")
+        if tw(gc, it[1]) > W - 50 then font(gc, 9, act and "b" or "r") end
         cc(gc, act and C.hd or C.tx); txt(gc, it[1], 38, y + 2)
       end
     end
@@ -1179,6 +1181,39 @@ local function wrapRows(gc, rows)
           if not first and #t > 0 then t = t end
           first = false
           if #t > 0 then t = t end
+        end
+      end
+    elseif r[1] ~= "#" and r[1] ~= "!" and r[2] then
+      -- etiqueta / valor: si no caben juntos, el valor pasa a la linea siguiente
+      font(gc, 9); local lw = tw(gc, r[1])
+      font(gc, 10, "b"); local vw = tw(gc, r[2])
+      font(gc, 9, "b"); local vw9 = tw(gc, r[2])
+      if 150 + vw <= W - 8 or 20 + lw + vw9 <= W - 8 then
+        out[#out + 1] = r
+      else
+        if r[1] ~= "" then out[#out + 1] = {r[1], ""} end
+        local v = r[2]
+        local maxw = W - 30
+        while #v > 0 do
+          local cut = #v
+          if tw(gc, v) > maxw then
+            local best
+            local i = 1
+            while true do
+              local a = v:find(" [%+%-/] ", i)
+              if not a then break end
+              if tw(gc, v:sub(1, a - 1)) <= maxw then best = a else break end
+              i = a + 1
+            end
+            if not best then
+              for j = #v, 1, -1 do
+                if v:sub(j, j) == " " and tw(gc, v:sub(1, j - 1)) <= maxw then best = j; break end
+              end
+            end
+            cut = (best or #v + 1) - 1
+          end
+          out[#out + 1] = {"", v:sub(1, cut)}
+          v = v:sub(cut + 1):gsub("^ +", "")
         end
       end
     else
@@ -1559,31 +1594,43 @@ KINDS.el = {
   del = function(i) table.remove(M.el, i) end,
 }
 
+local previewDraw   -- vista previa del modelo (se define con el dibujo)
+local Editor        -- editor grafico (se define mas abajo)
+local EMODE = {nodes = 1, elems = 2, nl = 3, el = 3}
+
 local function List(kind)
   local K = KINDS[kind]
-  local s = {sel = 1, top = 1}
+  local s = {sel = 1, top = 1, prev = true}
   function s:paint(gc)
     local arr = K.arr()
     cabecera(gc, K.title .. "  (" .. #arr .. ")")
-    local RH = 20
-    local N = max(1, floor((H - 30 - 20) / RH))
+    local y0 = 30
+    local showPrev = self.prev and kind ~= "secs" and #M.nodes > 0 and previewDraw
+    if showPrev then
+      previewDraw(gc, kind, (#arr > 0) and self.sel or nil, 26, 116)
+      bx(gc, 0, 116, W, 2, C.ln)
+      y0 = 120
+    end
+    local RH = showPrev and 18 or 20
+    local N = max(1, floor((H - y0 - 20) / RH))
     if self.sel > #arr then self.sel = max(1, #arr) end
     scrollTo(self, N, #arr)
     if #arr == 0 then
-      font(gc, 10); cc(gc, C.sub); txt(gc, "(vacío)   presione  +  para agregar", 14, 40)
+      font(gc, 10); cc(gc, C.sub); txt(gc, "(vacío)   presione  +  para agregar", 14, y0 + 6)
     end
     for i = self.top, min(#arr, self.top + N - 1) do
-      local y = 30 + (i - self.top) * RH
+      local y = y0 + (i - self.top) * RH
       local act = (i == self.sel)
       if act then bx(gc, 4, y, W - 12, RH - 2, C.sel); bx(gc, 4, y, 3, RH - 2, C.ac)
       elseif (i - self.top) % 2 == 1 then bx(gc, 4, y, W - 12, RH - 2, C.alt) end
       font(gc, 10, act and "b" or "r")
       local t = K.row(i, arr[i])
       if tw(gc, t) > W - 26 then font(gc, 9, act and "b" or "r") end
-      cc(gc, act and C.hd or C.tx); txt(gc, t, 12, y + 2)
+      cc(gc, act and C.hd or C.tx); txt(gc, t, 12, y + (showPrev and 1 or 2))
     end
-    barra(gc, self.top, #arr, N, 30, N * RH - 2)
-    pie(gc, "+: agregar   enter: editar   del: borrar   esc: volver")
+    barra(gc, self.top, #arr, N, y0, N * RH - 2)
+    if kind == "secs" then pie(gc, "+: agregar   enter: editar   del: borrar   esc: volver")
+    else pie(gc, "+: agregar  enter: editar  del: borrar  v: vista  g: gráfico") end
   end
   function s:arrow(k)
     local n = #K.arr()
@@ -1605,7 +1652,11 @@ local function List(kind)
     end))
   end
   function s:kEnter() if #K.arr() > 0 then open(self.sel) else open(nil) end end
-  function s:char(ch) if ch == "+" then open(nil) end end
+  function s:char(ch)
+    if ch == "+" then open(nil)
+    elseif (ch == "v" or ch == "V") and kind ~= "secs" then self.prev = not self.prev
+    elseif (ch == "g" or ch == "G") and EMODE[kind] and Editor then push(Editor(EMODE[kind])) end
+  end
   local function del()
     local arr = K.arr()
     if #arr == 0 then return end
@@ -1631,6 +1682,7 @@ local function convertModel(fu0, lu0, fu1, lu1)
     p.kx = p.kx * f / l; p.ky = p.ky * f / l; p.kr = p.kr * f * l
   end
   for _, s in ipairs(M.secs) do s.E = s.E * f / (l * l); s.A = s.A * l * l; s.I = s.I * l ^ 4 end
+  if type(M.grid) == "number" then M.grid = M.grid * l end
   for _, q in ipairs(M.nl) do q.fx = Lscale(q.fx, f); q.fy = Lscale(q.fy, f); q.m = Lscale(q.m, f * l) end
   for _, q in ipairs(M.el) do
     if q.t == 1 then q.v1 = Lscale(q.v1, f / l); q.v2 = Lscale(q.v2, f / l)
@@ -1938,6 +1990,15 @@ local function drawDiagram(gc, tx, q)
   local amp = 0.12 * min(W, H)
   local kk = amp / mxa
   local sgn = (q == 3 and M.ms == 2) and -1 or 1
+  -- rectangulos ya ocupados por etiquetas (para que no se encimen)
+  local placed = {}
+  local function free(x, y, w, h)
+    if y < 28 or y + h > H - 32 or x < 1 or x + w > W - 1 then return false end
+    for _, r in ipairs(placed) do
+      if x < r[1] + r[3] and r[1] < x + w and y < r[2] + r[4] and r[2] < y + h then return false end
+    end
+    return true
+  end
   for ei, X in ipairs(RES.EL) do
     local e = M.elems[ei]
     local A = M.nodes[e.i]
@@ -1971,11 +2032,31 @@ local function drawDiagram(gc, tx, q)
         local st = fmt(v, tol, 4)
         local ddir = (v >= 0) and 1 or -1
         local lx, ly = ox + nx * ddir * 3, oy + ny * ddir * 3
+        -- mismo valor ya rotulado muy cerca (p. ej. dos barras que llegan al mismo nudo)
+        for _, r in ipairs(placed) do
+          if r[5] == st and abs(r[6] - ox) < 16 and abs(r[7] - oy) < 16 then return end
+        end
         local w = tw(gc, st)
+        local h = (gc.getStringHeight and gc:getStringHeight(st) or 10) + 1
         if nx * ddir < -0.3 then lx = lx - w end
         if abs(nx) <= 0.3 then lx = lx - w / 2 end
         if ny * ddir < -0.3 then ly = ly - 10 end
-        txt(gc, st, lx, ly - 2)
+        ly = ly - 1
+        -- posiciones alternativas si el lugar ya esta ocupado
+        local ux, uy = nx * ddir, ny * ddir
+        local cand = {{lx, ly}, {lx + ux * h, ly + uy * h}, {lx, ly - h}, {lx, ly + h},
+                      {lx + ux * 2 * h, ly + uy * 2 * h}, {lx - w / 2 - 4, ly}, {lx + w / 2 + 4, ly},
+                      {lx, ly - 2 * h}, {lx, ly + 2 * h}}
+        for _, cd in ipairs(cand) do
+          if free(cd[1], cd[2], w, h) then
+            placed[#placed + 1] = {cd[1] - 1, cd[2], w + 2, h, st, ox, oy}
+            bx(gc, cd[1] - 1, cd[2], w + 2, h - 1, C.w)       -- fondo para leer sobre el rayado
+            col(gc, colr[1], colr[2], colr[3])
+            txt(gc, st, cd[1], cd[2] - 1)
+            return
+          end
+        end
+        -- sin espacio libre: solo queda el punto; el valor se lee al pie o en la vista por elemento
       end
       local ex = X.ext[q]
       if ex.mx.v > tol then lab1(ex.mx.x, ex.mx.v, {0, 90, 170}) end
@@ -2016,21 +2097,112 @@ local function drawDeformed(gc, tx, sc)
   return f
 end
 
+------------------------------------------------------------------
+-- Vista previa y resaltado (listas y editor grafico)
+------------------------------------------------------------------
+-- Encuadra el rectangulo b = {x0, x1, y0, y1} del mundo en la pantalla
+local function fitTx(b, top, bot, mar)
+  local x0, x1, y0, y1 = b[1], b[2], b[3], b[4]
+  local aw, ah = W - 2 * mar, (H - bot) - top - 2 * mar
+  local dx, dy = x1 - x0, y1 - y0
+  local sc
+  if dx < 1e-12 and dy < 1e-12 then sc = 1
+  elseif dx < 1e-12 then sc = ah / dy
+  elseif dy < 1e-12 then sc = aw / dx
+  else sc = min(aw / dx, ah / dy) end
+  local cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+  local ox, oy = W / 2, top + mar + ah / 2
+  return function(x, y) return ox + (x - cx) * sc, oy - (y - cy) * sc end, sc
+end
+
+local function nodesBounds()
+  local x0, x1, y0, y1 = HUGE, -HUGE, HUGE, -HUGE
+  for _, p in ipairs(M.nodes) do
+    x0 = min(x0, p.x); x1 = max(x1, p.x); y0 = min(y0, p.y); y1 = max(y1, p.y)
+  end
+  if x0 == HUGE then return {0, 1, 0, 1} end
+  return {x0, x1, y0, y1}
+end
+
+local function ring(gc, X, Y, r) gc:drawArc(X - r, Y - r, 2 * r, 2 * r, 0, 360) end
+
+-- Resalta un nudo, una barra o una carga (kind = nodes / elems / nl / el)
+local function hlDraw(gc, tx, kind, idx, colr)
+  if not idx then return end
+  cc(gc, colr or C.err)
+  gc:setPen("medium", "smooth")
+  local function elemSeg(k, a, b)
+    local e = M.elems[k]
+    if not e or not M.nodes[e.i] or not M.nodes[e.j] then return end
+    local A = M.nodes[e.i]
+    local L, c, s = geom(e)
+    a = a or 0; b = b or L
+    local x1, y1 = tx(A.x + a * c, A.y + a * s)
+    local x2, y2 = tx(A.x + b * c, A.y + b * s)
+    if b - a < 1e-9 then ring(gc, x1, y1, 6); return end
+    gc:setPen("thick", "smooth")
+    gc:drawLine(x1, y1, x2, y2)
+    gc:setPen("medium", "smooth")
+  end
+  if kind == "nodes" then
+    local p = M.nodes[idx]
+    if p then local X, Y = tx(p.x, p.y); ring(gc, X, Y, 7) end
+  elseif kind == "elems" then
+    elemSeg(idx)
+  elseif kind == "nl" then
+    local l = M.nl[idx]
+    local p = l and M.nodes[l.n]
+    if p then local X, Y = tx(p.x, p.y); ring(gc, X, Y, 7); ring(gc, X, Y, 9) end
+  elseif kind == "el" then
+    local l = M.el[idx]
+    if l and M.elems[l.e] then
+      local L = geom(M.elems[l.e])
+      if l.t == 1 then
+        local a, b = l.a, (l.b > 0) and l.b or L
+        if b < a then a, b = b, a end
+        elemSeg(l.e, a, b)
+      else
+        elemSeg(l.e, l.a, l.a)
+      end
+    end
+  end
+  gc:setPen("thin", "smooth")
+end
+
+previewDraw = function(gc, kind, sel, top, bottomY)
+  bx(gc, 0, top, W, bottomY - top, C.w)
+  local tx = fitTx(nodesBounds(), top, H - bottomY, 20)
+  drawStructure(gc, tx)
+  if kind == "nl" or kind == "el" then drawLoads(gc, tx) end
+  hlDraw(gc, tx, kind, sel)
+end
+
 local MODES = {"Modelo", "Reacciones", "Normal N", "Cortante V", "Momento M", "Rotacion θ", "Flecha δ (y')", "Deformada"}
 local MQ = {nil, nil, 1, 2, 3, 4, 5, nil}
 
 local ElemView, EqView -- declarados adelante
 
 -- panel inferior de dos lineas (dato + teclas)
+-- recorta un texto para que quepa en el ancho dado
+local function fit(gc, s, wmax)
+  if tw(gc, s) <= wmax then return s end
+  while #s > 1 and tw(gc, s .. "..") > wmax do
+    local n = #s
+    repeat n = n - 1 until n <= 1 or s:byte(n + 1) < 128 or s:byte(n + 1) >= 192
+    s = s:sub(1, n)
+  end
+  return s .. ".."
+end
+
 local function panel(gc, l1, l2)
   bx(gc, 0, H - 31, W, 1, C.ln)
   bx(gc, 0, H - 30, W, 30, C.ft)
   font(gc, 9, "b")
   if tw(gc, l1) > W - 8 then font(gc, 7, "b") end
-  cc(gc, C.tx); txt(gc, l1, 5, H - 30)
+  cc(gc, C.tx); txt(gc, fit(gc, l1, W - 8), 5, H - 30)
   font(gc, 9)
   if tw(gc, l2) > W - 8 then font(gc, 7) end
-  cc(gc, C.sub); txt(gc, l2, 5, H - 16)
+  cc(gc, C.sub); txt(gc, fit(gc, l2, W - 8), 5, H - 16)
 end
 
 local function Canvas(mode)
@@ -2047,7 +2219,7 @@ local function Canvas(mode)
       drawStructure(gc, tx)
       drawLoads(gc, tx)
       l1 = "Unidades: " .. uF() .. ", " .. uL() .. "   Nudos: " .. #M.nodes .. "   Elementos: " .. #M.elems
-      l2 = "tab: resultados   +/-: zoom   0: ajustar   n: números"
+      l2 = "enter: editor gráfico   tab: resultados   +/-: zoom"
     elseif mode == 2 then
       drawStructure(gc, tx)
       local sx, sy, tol = drawReactions(gc, tx)
@@ -2059,8 +2231,8 @@ local function Canvas(mode)
       drawDiagram(gc, tx, q)
       local g = RES.gx[q]
       local tol = 1e-9 * RES.qmax[q]
-      l1 = "máx " .. fmt(g.mx.v, tol) .. " (E" .. g.mx.e .. ", x=" .. fmt(g.mx.x, nil, 4) .. ")   mín " ..
-           fmt(g.mn.v, tol) .. " (E" .. g.mn.e .. ", x=" .. fmt(g.mn.x, nil, 4) .. ")  [" .. QU[q]() .. "]"
+      l1 = "máx " .. fmt(g.mx.v, tol, 4) .. " (E" .. g.mx.e .. ", x=" .. fmt(g.mx.x, nil, 3) .. ")  mín " ..
+           fmt(g.mn.v, tol, 4) .. " (E" .. g.mn.e .. ", x=" .. fmt(g.mn.x, nil, 3) .. ") " .. QU[q]()
       l2 = "tab: diagrama   enter: por elemento   e: ecuaciones   v: etiq."
       if RES.sym then l2 = "Prueba: " .. symTxt() .. "   enter: elemento   e: ecuaciones" end
     else
@@ -2099,8 +2271,268 @@ local function Canvas(mode)
     end
   end
   function s:kEnter()
+    if self.mode == 1 then push(Editor(1)); return end
     local q = MQ[self.mode] or 3
     if #M.elems > 0 and ensure() then push(ElemView(1, q, 0)) end
+  end
+  return s
+end
+
+------------------------------------------------------------------
+-- EDITOR GRAFICO (v1.3): dibujar nudos, barras y cargas con un cursor
+------------------------------------------------------------------
+local EMODES = {"NUDOS", "BARRAS", "CARGAS"}
+local function gridDefault() local d = {1, 100, 1000, 1, 12}; return d[M.lu] or 1 end
+local function snap(v, g) return tonumber(string.format("%.10g", floor(v / g + 0.5) * g)) end
+
+-- abre el formulario de un registro (nuevo si idx es nil)
+local function editRec(kind, idx, rec0)
+  local K = KINDS[kind]
+  local arr = K.arr()
+  local rec = idx and arr[idx] or rec0 or K.new()
+  local ttl = idx and (K.title .. " #" .. idx) or ("Nuevo: " .. K.title)
+  push(Form(ttl, K.fields(), rec, function(r)
+    if K.check then local e = K.check(r); if e then return e end end
+    if idx then arr[idx] = r else arr[#arr + 1] = r end
+    dirty()
+  end))
+end
+
+-- cargas de un nudo (kind nl) o de una barra (kind el): nueva o editar existente
+local function loadMenu(kind, k, ta)
+  local K = KINDS[kind]
+  local arr = K.arr()
+  local newRec
+  if kind == "nl" then newRec = {n = k, fx = 0, fy = 0, m = 0}
+  else
+    newRec = {e = k, t = ta and 2 or 1, d = 1, v1 = 0, v2 = 0, a = ta and tonumber(string.format("%.10g", ta)) or 0, b = 0}
+  end
+  local list = {}
+  for i, l in ipairs(arr) do
+    if (kind == "nl" and l.n == k) or (kind == "el" and l.e == k) then list[#list + 1] = i end
+  end
+  if #list == 0 then editRec(kind, nil, newRec); return end
+  local items = {{"Nueva carga", function() pop(); editRec(kind, nil, newRec) end}}
+  for _, i in ipairs(list) do
+    items[#items + 1] = {"Editar " .. K.row(i, arr[i]), function() pop(); editRec(kind, i) end}
+  end
+  push(Menu(kind == "nl" and ("Cargas en N" .. k) or ("Cargas en E" .. k), items, "enter: elegir   esc: volver"))
+end
+
+Editor = function(mode)
+  local s = {mode = mode or 1, pend = nil, truss = false, ta = 0}
+  if type(M.grid) ~= "number" or M.grid <= 0 then M.grid = gridDefault() end
+  local last = M.nodes[#M.nodes]
+  s.cx = last and snap(last.x, M.grid) or 0
+  s.cy = last and snap(last.y, M.grid) or 0
+
+  local function nodeAt()
+    local g = M.grid
+    local best, bd = nil, HUGE
+    for k, p in ipairs(M.nodes) do
+      local d = max(abs(p.x - s.cx), abs(p.y - s.cy))
+      if d < 0.5 * g - 1e-12 and d < bd then best, bd = k, d end
+    end
+    return best
+  end
+  local function elemAt()
+    local g = M.grid
+    local best, bd = nil, HUGE
+    for k, e in ipairs(M.elems) do
+      local A, B = M.nodes[e.i], M.nodes[e.j]
+      if A and B then
+        local dx, dy = B.x - A.x, B.y - A.y
+        local L2 = dx * dx + dy * dy
+        if L2 > 0 then
+          local tt = ((s.cx - A.x) * dx + (s.cy - A.y) * dy) / L2
+          if tt > 1e-9 and tt < 1 - 1e-9 then
+            local px, py = A.x + tt * dx, A.y + tt * dy
+            local d = sqrt((s.cx - px) ^ 2 + (s.cy - py) ^ 2)
+            if d < 0.35 * g and d < bd then best, bd = k, d; s.ta = tt * sqrt(L2) end
+          end
+        end
+      end
+    end
+    return best
+  end
+  local function loadsOn(kind, k)
+    local n = 0
+    for _, l in ipairs(KINDS[kind].arr()) do
+      if (kind == "nl" and l.n == k) or (kind == "el" and l.e == k) then n = n + 1 end
+    end
+    return n
+  end
+
+  function s:paint(gc)
+    local g = M.grid
+    if self.pend and not M.nodes[self.pend] then self.pend = nil end
+    local x0, x1, y0, y1 = self.cx, self.cx, self.cy, self.cy
+    for _, p in ipairs(M.nodes) do
+      x0 = min(x0, p.x); x1 = max(x1, p.x); y0 = min(y0, p.y); y1 = max(y1, p.y)
+    end
+    x0, x1, y0, y1 = x0 - g, x1 + g, y0 - g, y1 + g
+    local tx, sc = fitTx({x0, x1, y0, y1}, 27, 31, 16)
+    bx(gc, 0, 26, W, H - 57, C.w)
+    -- malla de puntos
+    if g * sc >= 6 then
+      local i0, i1 = ceil(x0 / g - 1e-9), floor(x1 / g + 1e-9)
+      local j0, j1 = ceil(y0 / g - 1e-9), floor(y1 / g + 1e-9)
+      if (i1 - i0 + 1) * (j1 - j0 + 1) <= 1500 then
+        for i = i0, i1 do
+          for j = j0, j1 do
+            local X, Y = tx(i * g, j * g)
+            if i == 0 or j == 0 then cc(gc, C.lab) else cc(gc, C.ln) end
+            gc:fillRect(X - 1, Y - 1, 2, 2)
+          end
+        end
+      end
+    end
+    drawStructure(gc, tx)
+    drawLoads(gc, tx)
+    local nk = nodeAt()
+    local ek = (not nk) and elemAt() or nil
+    local CX, CY = tx(self.cx, self.cy)
+    if self.pend then
+      local p = M.nodes[self.pend]
+      local X, Y = tx(p.x, p.y)
+      cc(gc, C.ok); gc:setPen("medium", "smooth")
+      ring(gc, X, Y, 8)
+      gc:drawLine(X, Y, CX, CY)
+      gc:setPen("thin", "smooth")
+    end
+    if nk then hlDraw(gc, tx, "nodes", nk) elseif ek then hlDraw(gc, tx, "elems", ek) end
+    -- cursor en cruz
+    cc(gc, C.err)
+    gc:drawLine(CX - 8, CY, CX - 3, CY); gc:drawLine(CX + 3, CY, CX + 8, CY)
+    gc:drawLine(CX, CY - 8, CX, CY - 3); gc:drawLine(CX, CY + 3, CX, CY + 8)
+    -- informacion
+    local info = "(" .. fmt(self.cx) .. ", " .. fmt(self.cy) .. ") " .. uL()
+    if nk then
+      local p = M.nodes[nk]
+      info = info .. "   N" .. nk .. (p.sup > 1 and (" " .. SUP[p.sup].s) or "")
+      local n = loadsOn("nl", nk)
+      if n > 0 then info = info .. "  (" .. n .. " carga" .. (n > 1 and "s" or "") .. ")" end
+    elseif ek then
+      local e = M.elems[ek]
+      info = info .. "   E" .. ek .. " (N" .. e.i .. "→N" .. e.j .. ")  x=" .. fmt(self.ta, nil, 4)
+    end
+    info = info .. "   malla " .. fmt(g)
+    local l2
+    if self.mode == 1 then
+      l2 = nk and "enter: editar   a: apoyo   del: borrar   tab: modo"
+              or "enter: crear nudo   g: malla   tab: modo   esc: salir"
+    elseif self.mode == 2 then
+      if self.pend then l2 = "enter en otro nudo: barra desde N" .. self.pend .. "   esc: terminar"
+      else
+        l2 = "enter: nudo inicial   t: " .. (self.truss and "ARMADURA" or "MARCO") ..
+             (ek and "   enter/del: barra" or "   tab: modo")
+      end
+    else
+      l2 = (nk or ek) and "enter: cargas aquí   del: borrar cargas   tab: modo"
+                      or "ponga el cursor en un nudo o una barra   tab: modo"
+    end
+    cabecera(gc, "Editor · " .. EMODES[self.mode] .. (self.mode == 2 and (self.truss and " (armadura)" or " (marco)") or ""))
+    panel(gc, info, l2)
+  end
+
+  function s:arrow(k)
+    local g = M.grid
+    if k == "left" then self.cx = snap(self.cx - g, g)
+    elseif k == "right" then self.cx = snap(self.cx + g, g)
+    elseif k == "up" then self.cy = snap(self.cy + g, g)
+    elseif k == "down" then self.cy = snap(self.cy - g, g) end
+  end
+  function s:tab() self.mode = self.mode % 3 + 1; self.pend = nil end
+  function s:backtab() self.mode = (self.mode - 2) % 3 + 1; self.pend = nil end
+  function s:kEsc() if self.pend then self.pend = nil else pop() end end
+
+  function s:kEnter()
+    local nk = nodeAt()
+    local ek = (not nk) and elemAt() or nil
+    if self.mode == 1 then
+      if nk then editRec("nodes", nk)
+      else
+        M.nodes[#M.nodes + 1] = nd(self.cx, self.cy, 1)
+        dirty()
+      end
+    elseif self.mode == 2 then
+      if nk then
+        if not self.pend then self.pend = nk
+        elseif self.pend == nk then self.pend = nil
+        else
+          for _, e in ipairs(M.elems) do
+            if (e.i == self.pend and e.j == nk) or (e.i == nk and e.j == self.pend) then
+              showMsg("Ya existe una barra entre\nN" .. self.pend .. " y N" .. nk .. ".")
+              return
+            end
+          end
+          -- orientacion usual: de izquierda a derecha; columnas de abajo hacia arriba
+          local i, j = self.pend, nk
+          local A, B = M.nodes[i], M.nodes[j]
+          if B.x < A.x - 1e-12 or (abs(B.x - A.x) <= 1e-12 and B.y < A.y) then i, j = j, i end
+          local h = self.truss and 2 or 1
+          M.elems[#M.elems + 1] = {i = i, j = j, s = #M.secs, hi = h, hj = h}
+          dirty()
+          self.pend = nk           -- se puede seguir dibujando desde este nudo
+        end
+      elseif ek and not self.pend then
+        editRec("elems", ek)
+      else
+        showMsg("Ponga el cursor sobre un nudo:\nenter en un nudo inicia la barra\ny enter en otro nudo la termina.")
+      end
+    else
+      if nk then loadMenu("nl", nk)
+      elseif ek then loadMenu("el", ek, self.ta)
+      else showMsg("Ponga el cursor sobre un nudo\no sobre una barra.") end
+    end
+  end
+
+  local function del()
+    local nk = nodeAt()
+    local ek = (not nk) and elemAt() or nil
+    if s.mode == 1 and nk then
+      showMsg("¿Borrar el nudo N" .. nk .. "?", function()
+        local e = KINDS.nodes.del(nk)
+        if e then showMsg(e) else dirty() end
+      end, true)
+    elseif s.mode == 2 and ek then
+      showMsg("¿Borrar la barra E" .. ek .. "\n(y sus cargas)?", function()
+        KINDS.elems.del(ek); dirty()
+      end, true)
+    elseif s.mode == 3 and (nk or ek) then
+      local kind, k = nk and "nl" or "el", nk or ek
+      local n = loadsOn(kind, k)
+      if n == 0 then showMsg("No hay cargas en " .. (nk and "N" or "E") .. k .. "."); return end
+      showMsg("¿Borrar las " .. n .. " carga(s) de " .. (nk and "N" or "E") .. k .. "?", function()
+        local arr = KINDS[kind].arr()
+        for i = #arr, 1, -1 do
+          local l = arr[i]
+          if (kind == "nl" and l.n == k) or (kind == "el" and l.e == k) then table.remove(arr, i) end
+        end
+        dirty()
+      end, true)
+    end
+  end
+  s.back = del
+  s.del = del
+
+  function s:char(ch)
+    local nk = nodeAt()
+    if (ch == "a" or ch == "A") and self.mode == 1 and nk then
+      local p = M.nodes[nk]
+      p.sup = p.sup % #SUP + 1
+      dirty()
+    elseif (ch == "t" or ch == "T") and self.mode == 2 then
+      self.truss = not self.truss
+    elseif ch == "g" or ch == "G" then
+      local me = self
+      push(Form("Malla del editor", {
+        {k = "g", l = "Paso de la malla", t = "n", u = uL, pos = true},
+      }, {g = M.grid}, function(r)
+        M.grid = r.g
+        me.cx, me.cy = snap(me.cx, r.g), snap(me.cy, r.g)
+      end))
+    end
   end
   return s
 end
@@ -2431,13 +2863,48 @@ local function Table(kind)
       font(gc, 9, "b"); cc(gc, C.ac); txt(gc, D.info, 9, y + 1)
       y = y + 19
     end
-    local cx = {8, 84, 162, 240}
+    -- ancho de cada columna segun su contenido; letra 9, o 7 si no cabe;
+    -- si aun asi no cabe, la primera columna queda fija y las demas se desplazan
+    local ncol = #D.head
+    local function widths(fs)
+      local need, total = {}, 0
+      for j = 1, ncol do
+        font(gc, fs, "b")
+        local m = tw(gc, D.head[j])
+        for _, r in ipairs(D.rows) do
+          if r[j] then
+            font(gc, fs, (D.last and r == D.rows[#D.rows]) and "b" or "r")
+            m = max(m, tw(gc, tostring(r[j])))
+          end
+        end
+        need[j] = m + 10
+        total = total + need[j]
+      end
+      return need, total
+    end
+    local avail = W - 16
+    local fs = 9
+    local need, total = widths(9)
+    if total > avail then fs = 7; need, total = widths(7) end
+    local cx = {}
+    local x0c = 8 + need[1]          -- donde empieza la parte desplazable
+    if total <= avail then
+      local extra = (avail - total) / ncol
+      local x = 8
+      for j = 1, ncol do cx[j] = x; x = x + need[j] + extra end
+      self.hmax, self.hx = 0, 0
+    else
+      self.hmax = total - avail
+      self.hx = clamp(self.hx or 0, 0, self.hmax)
+      local x = x0c
+      cx[1] = 8
+      for j = 2, ncol do cx[j] = x - self.hx; x = x + need[j] end
+    end
+    local function visible(j) return j == 1 or self.hmax == 0 or cx[j] >= x0c - 1 end
     bx(gc, 4, y, W - 8, 18, C.hd)
-    font(gc, 9, "b"); cc(gc, C.w)
+    font(gc, fs, "b"); cc(gc, C.w)
     for j, h in ipairs(D.head) do
-      if tw(gc, h) > 76 then font(gc, 7, "b") end
-      txt(gc, h, cx[j], y + 2)
-      font(gc, 9, "b")
+      if visible(j) then txt(gc, h, cx[j], y + (fs == 9 and 2 or 4)) end
     end
     y = y + 20
     local RH = 17
@@ -2451,23 +2918,29 @@ local function Table(kind)
       local ult = D.last and i == n
       if ult then bx(gc, 4, yy, W - 8, RH, C.sel)
       elseif (i - self.top) % 2 == 1 then bx(gc, 4, yy, W - 8, RH, C.alt) end
-      font(gc, 9, ult and "b" or "r")
+      font(gc, fs, ult and "b" or "r")
       for j = 1, #r do
-        cc(gc, ult and C.ok or C.tx)
-        local st = tostring(r[j])
-        local wcol = (cx[j + 1] or W - 4) - cx[j] - 3
-        if tw(gc, st) > wcol then font(gc, 7, ult and "b" or "r") end
-        txt(gc, st, cx[j], yy + 2)
-        font(gc, 9, ult and "b" or "r")
+        if visible(j) then
+          cc(gc, ult and C.ok or C.tx)
+          txt(gc, tostring(r[j]), cx[j], yy + (fs == 9 and 2 or 4))
+        end
       end
     end
     barra(gc, self.top, n, N, y, N * RH)
-    pie(gc, n .. " filas   flechas: desplazar   esc: volver")
+    if self.hmax > 0 then
+      local hidden = 0
+      for j = 2, ncol do if not visible(j) then hidden = hidden + 1 end end
+      pie(gc, n .. " filas   izq/der: ver columnas" .. (hidden > 0 and (" (" .. hidden .. " ocultas)") or "") .. "   esc: volver")
+    else
+      pie(gc, n .. " filas   flechas: desplazar   esc: volver")
+    end
   end
   function s:arrow(k)
     if not self.D then return end
     if k == "down" and self.top + (self.N or 8) - 1 < (self.n or 0) then self.top = self.top + 1
-    elseif k == "up" and self.top > 1 then self.top = self.top - 1 end
+    elseif k == "up" and self.top > 1 then self.top = self.top - 1
+    elseif k == "right" and (self.hmax or 0) > 0 then self.hx = min(self.hmax, (self.hx or 0) + 60)
+    elseif k == "left" and (self.hmax or 0) > 0 then self.hx = max(0, (self.hx or 0) - 60) end
   end
   return s
 end
@@ -2570,6 +3043,17 @@ EXAMPLES[6] = {"Viga con carga P (incógnita)", function()
   m.symv = {P = 1}
   return m end}
 
+EXAMPLES[7] = {"Armadura con carga P", function()
+  local m = newModel()
+  m.nodes = {nd(0, 0, 3), nd(3, 0, 1), nd(6, 0, 4), nd(3, 3, 1)}
+  m.elems = {{i = 2, j = 3, s = 1, hi = 2, hj = 2}, {i = 1, j = 2, s = 1, hi = 2, hj = 2},
+             {i = 1, j = 4, s = 1, hi = 2, hj = 2}, {i = 4, j = 3, s = 1, hi = 2, hj = 2},
+             {i = 2, j = 4, s = 1, hi = 2, hj = 2}}
+  m.nl = {{n = 4, fx = 0, fy = {c = 0, s = {P = -1}}, m = 0}}
+  m.symv = {P = 1}
+  m.grid = 1
+  return m end}
+
 local function loadModel(m)
   M = m; fixModel(); RES = nil
   VIEW.zoom, VIEW.px, VIEW.py = 1, 0, 0
@@ -2603,6 +3087,10 @@ local function About()
         {"~", "Basado en la app FEES del Ing. Sergio Lobo"},
         {"~", "Aguilar, docente de la Universidad de Costa Rica."},
         {"~", "Desarrollado con ayuda de la IA Claude (Anthropic)."},
+        {"#", "NOVEDADES v1.3"},
+        {"~", "Editor gráfico: dibuje nudos, barras y cargas"},
+        {"~", "con un cursor sobre una malla (Modelo > Editor)."},
+        {"~", "Las listas muestran una vista previa del modelo."},
         {"#", "NOVEDADES v1.2"},
         {"~", "Cargas incógnitas: escriba P, -2P, w, P/2..."},
         {"~", "en el valor de una carga. Resultados en función"},
@@ -2743,6 +3231,7 @@ end
 local HomeItems = {
   {"MODELO", nil, hd = true},
   {"Unidades y opciones", function() push(UnitsForm()) end},
+  {"Editor gráfico (dibujar)", function() push(Editor(1)) end},
   {"Nudos y apoyos", function() push(List("nodes")) end},
   {"Secciones (E, A, I)", function() push(List("secs")) end},
   {"Elementos y rótulas", function() push(List("elems")) end},
@@ -2782,6 +3271,7 @@ if toolpalette and toolpalette.register then
       {"Acerca de", goto0(function() push(About()) end)}},
     {"Modelo",
       {"Unidades y opciones", goto0(function() push(UnitsForm()) end)},
+      {"Editor grafico", goto0(function() push(Editor(1)) end)},
       {"Nudos y apoyos", goto0(function() push(List("nodes")) end)},
       {"Secciones", goto0(function() push(List("secs")) end)},
       {"Elementos", goto0(function() push(List("elems")) end)},
@@ -2900,4 +3390,5 @@ MARCOS2D = {solve = solve, query = query, setModel = function(m) loadModel(m) en
             msg = function() return MSG end, fmt = fmt, tramos = tramos, polyEval = polyEval,
             EqView = EqView, Summary = Summary, About = About, polyStr = polyStr,
             Lparse = Lparse, Lstr = Lstr, SYMV = SYMV, despejar = despejar, modelSyms = modelSyms,
-            tramosL = tramosL, SymForm = SymForm, SolveForForm = SolveForForm, Lval = Lval}
+            tramosL = tramosL, SymForm = SymForm, SolveForForm = SolveForForm, Lval = Lval,
+            Editor = Editor}
