@@ -383,4 +383,104 @@ do
   if A.msg() then A.key("kEsc") end
 end
 
+-- 17) Editor grafico (v1.3)
+do
+  local function paint() on.paint(gc); local mm = A.msg(); if mm and mm.text:find("Error") then error(mm.text) end end
+  local function topf() local st = A.stack(); return st[#st] end
+  local function save() local f = topf(); for _ = 1, 15 do if topf() ~= f then return end; A.key("kEnter") end end
+  local function K(k, n) for _ = 1, (n or 1) do A.key("arrow", k) end end
+  local m = base(); m.grid = 1
+  A.setModel(m)
+  local ed = A.Editor(1); A.push(ed); paint()
+  -- nudos: un rectangulo 4 x 3
+  A.key("kEnter"); paint()
+  K("right", 4); A.key("kEnter")
+  K("up", 3); A.key("kEnter")
+  K("left", 4); A.key("kEnter"); paint()
+  local M = A.getModel()
+  yes(#M.nodes == 4 and M.nodes[3].x == 4 and M.nodes[3].y == 3, "Editor: crea 4 nudos en la malla")
+  A.key("kEnter"); paint()                      -- enter sobre un nudo abre su formulario
+  yes(topf() ~= ed, "Editor: enter en un nudo abre el formulario"); A.key("kEsc")
+  K("down", 3); A.key("char", "a"); A.key("char", "a")
+  yes(M.nodes[1].sup == 3, "Editor: tecla a cambia el apoyo (articulado)")
+  K("right", 4); A.key("char", "a"); A.key("char", "a"); A.key("char", "a")
+  yes(M.nodes[2].sup == 4, "Editor: rodillo en N2")
+  -- barras: cadena N4 -> N1 -> N2, luego armadura N2 -> N3 -> N4
+  A.key("tab"); paint()
+  K("left", 4); K("up", 3); A.key("kEnter")    -- N4 (0,3)
+  K("down", 3); A.key("kEnter")                -- N1 (0,0)
+  K("right", 4); A.key("kEnter"); paint()      -- N2 (4,0)
+  yes(#M.elems == 2 and M.elems[1].i == 1 and M.elems[1].j == 4, "Editor: columna orientada de abajo hacia arriba")
+  yes(M.elems[2].i == 1 and M.elems[2].j == 2, "Editor: viga orientada de izquierda a derecha")
+  A.key("char", "t")
+  K("up", 3); A.key("kEnter")                  -- N3 (4,3)
+  K("left", 4); A.key("kEnter"); paint()       -- N4 (0,3)
+  yes(#M.elems == 4 and M.elems[3].hi == 2 and M.elems[3].hj == 2 and M.elems[4].i == 4 and M.elems[4].j == 3,
+      "Editor: barras de armadura con rótulas y orientación")
+  K("down", 3); A.key("kEnter")                -- N1 otra vez: ya existe N4-N1
+  yes(A.msg() ~= nil and A.msg().text:find("Ya existe"), "Editor: evita barras repetidas"); A.key("kEsc")
+  A.key("kEsc"); paint()                       -- termina la cadena
+  yes(topf() == ed, "Editor: esc termina la cadena sin salir")
+  K("right", 2); A.key("kEnter"); paint()      -- (2,0) sobre la viga E2: abre su formulario
+  yes(topf() ~= ed, "Editor: enter sobre una barra la edita"); A.key("kEsc")
+  -- cargas
+  A.key("tab"); paint()
+  A.key("kEnter"); paint()                     -- carga puntual en E2 a 2 m
+  local f = topf()
+  yes(f.r and f.r.e == 2 and f.r.t == 2 and math.abs(f.r.a - 2) < 1e-12, "Editor: carga puntual en la barra con a = 2")
+  K("down", 3); A.key("char", "−"); A.key("char", "P"); save(); paint()
+  yes(#M.el == 1 and type(M.el[1].v1) == "table" and M.el[1].v1.s.P == -1, "Editor: guarda la carga -P")
+  K("right", 2); K("up", 3); A.key("kEnter"); paint()    -- N3 (4,3)
+  f = topf()
+  yes(f.r and f.r.n == 3, "Editor: carga en el nudo N3")
+  K("down"); A.key("char", "1"); A.key("char", "0"); save(); paint()
+  yes(#M.nl == 1 and M.nl[1].fx == 10, "Editor: guarda Fx = 10 en N3")
+  A.key("kEnter"); paint()                     -- ya hay carga: menu nueva / editar
+  yes(topf().items and #topf().items == 2, "Editor: menú de cargas existentes"); A.key("kEsc")
+  A.key("back"); paint(); A.key("kEnter"); paint()
+  yes(#M.nl == 0, "Editor: borra las cargas del nudo")
+  -- la estructura dibujada se resuelve
+  A.key("kEsc")
+  yes(A.ensure() and A.res().GI ~= nil, "Editor: el modelo dibujado se resuelve (GI = " .. tostring(A.res() and A.res().GI) .. ")")
+  -- borrar un nudo con barras: aviso
+  A.push(A.Editor(1)); paint()
+  A.key("back"); A.key("kEnter"); paint()
+  yes(A.msg() ~= nil and A.msg().text:find("lo usa"), "Editor: no borra un nudo con barras"); A.key("kEsc"); A.key("kEsc")
+  -- malla
+  A.push(A.Editor(1)); A.key("char", "g"); A.key("char", "0"); A.key("char", "."); A.key("char", "5"); save()
+  yes(A.getModel().grid == 0.5, "Editor: cambia el paso de la malla")
+  for mode = 1, 3 do for _ = 1, 3 do A.key("tab"); paint() end end
+  A.key("kEsc")
+  -- listas con vista previa
+  for _, k in ipairs({"nodes", "elems", "nl", "el", "secs"}) do
+    A.push(A.List(k)); paint(); A.key("arrow", "down"); paint(); A.key("char", "v"); paint(); A.key("char", "v"); paint()
+    if k ~= "secs" then A.key("char", "g"); paint(); yes(topf().mode ~= nil, "Lista " .. k .. ": g abre el editor"); A.key("kEsc") end
+    A.key("kEsc")
+  end
+  -- ejemplos en el editor
+  for i, ex in ipairs(A.examples) do
+    A.setModel(ex[2]()); A.push(A.Editor(1)); for _ = 1, 3 do paint(); A.key("tab") end; A.key("kEsc")
+    A.push(A.List("el")); paint(); A.key("kEsc")
+  end
+  A.setModel(A.examples[1][2]()); A.push(A.Canvas(1)); A.key("kEnter"); paint()
+  yes(topf().mode == 1, "Ver modelo: enter abre el editor"); A.key("kEsc"); A.key("kEsc")
+end
+
+-- 18) Tablas anchas: columnas a la medida y desplazamiento horizontal
+do
+  local function paint() on.paint(gc); local mm = A.msg(); if mm and mm.text:find("Error") then error(mm.text) end end
+  local function topf() local st = A.stack(); return st[#st] end
+  local mf = A.examples[2][2]()
+  mf.nl[1].fx = {c = 0, s = {H = 1}}
+  mf.el[1].v1 = {c = -15, s = {w = -1}}; mf.el[1].v2 = {c = -15, s = {w = -1}}
+  A.setModel(mf); A.ensure()
+  A.push(A.Table("ends")); paint()
+  yes((topf().hmax or 0) > 0, "Tabla ancha activa el desplazamiento horizontal")
+  A.key("arrow", "right"); paint(); A.key("arrow", "right"); paint()
+  yes((topf().hx or 0) > 0, "Izq/der desplaza las columnas")
+  A.key("arrow", "left"); paint(); A.key("kEsc")
+  A.push(A.Summary()); for _ = 1, 30 do paint(); A.key("arrow", "down") end; A.key("kEsc")
+  for q = 3, 8 do local c = A.Canvas(q); A.push(c); A.key("char", "v"); paint(); A.key("char", "v"); paint(); A.key("kEsc") end
+end
+
 print(string.format("OK: %d   FALLAS: %d", nok, nfail))

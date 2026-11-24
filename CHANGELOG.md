@@ -2,6 +2,30 @@
 
 Todas las versiones de **Estruc-TI** (antes *MARCOS 2D*).
 
+## [1.3] — 2026-11
+
+### Agregado
+- **Editor gráfico** (*Modelo → Editor gráfico*, o `enter` en *Ver modelo*): un cursor se mueve sobre una malla de
+  puntos con las flechas y `tab` cambia entre tres modos:
+  - **Nudos**: `enter` crea un nudo en el punto del cursor o edita el nudo existente; `a` cambia el apoyo; `del` lo borra.
+  - **Barras**: `enter` en un nudo inicia la barra y `enter` en otro la termina; se puede seguir encadenando barras
+    (`esc` termina). `t` alterna entre **marco** y **armadura** (rótulas en ambos extremos). Las barras se orientan
+    solas: vigas de izquierda a derecha y columnas de abajo hacia arriba. Avisa si la barra ya existe.
+  - **Cargas**: `enter` sobre un nudo crea una carga en el nudo; sobre una barra, una carga puntual a la distancia del
+    cursor (se puede cambiar a distribuida). Si ya hay cargas, permite editarlas; `del` las borra.
+  - `g` cambia el paso de la malla (por defecto 1 m, 100 cm, 1000 mm, 1 ft o 12 in).
+- **Vista previa en las listas** de nudos, elementos y cargas: la mitad superior dibuja el modelo y resalta en rojo el
+  registro seleccionado. `v` la muestra u oculta y `g` abre el editor gráfico.
+- Nuevo ejemplo «Armadura con carga P».
+
+### Mejorado
+- **Diagramas legibles**: los valores ya no se enciman; si un lugar está ocupado se busca otro, los valores repetidos
+  en un mismo nudo se escriben una sola vez y cada valor tiene fondo blanco sobre el rayado.
+- **Tablas**: el ancho de cada columna se ajusta a su contenido (letra 9 o 7). Si no caben todas, la primera columna
+  queda fija y las demás se recorren con izquierda/derecha.
+- **Resumen de RESOLVER**: los valores largos pasan a su propia línea.
+- Pruebas automáticas: de 105 a **132** comprobaciones.
+
 ## [1.2] — 2026-11
 
 ### Agregado
